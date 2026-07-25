@@ -890,6 +890,7 @@ void SKeyState::activate() {
     viet_.reset();
     committedLen_ = 0;
     addrBarIsFirstWord_ = true;
+    addrBarHadSpace_ = false;
     surroundingTextFailed_ = false;  // fresh focus, re-verify
   }
   clearLastWord();
@@ -1515,10 +1516,12 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       committedLen_ = viet_.getRawInput().empty()
                           ? 0
                           : static_cast<int>(utf8::length(viet_.getComposed()));
-      // Re-arm cycle protection and first-word flag: clearing composed text
-      // puts us back in "first word" state where autocomplete may trigger.
+      // Re-arm cycle protection and, only when no space has been
+      // typed yet, the first-word flag.  After a space the next word
+      // won't trigger Chrome autocomplete, so fullReplace is not needed
+      // and would damage text before the cursor.
       addrBarExpectCycle_ = true;
-      if (viet_.getRawInput().empty()) {
+      if (viet_.getRawInput().empty() && !addrBarHadSpace_) {
         addrBarIsFirstWord_ = true;
       }
       SKEY_DEBUG() << "AddrBar BS: rawInput='" << viet_.getRawInput()
@@ -1711,6 +1714,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       // After space, the next word is NOT the first word — autocomplete
       // won't trigger on multi-word text.
       addrBarIsFirstWord_ = false;
+      addrBarHadSpace_ = true;
     }
     return;
   }

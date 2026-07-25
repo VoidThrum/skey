@@ -128,6 +128,11 @@ private:
     // after backspacing to empty.  Only the first word may trigger Chrome
     // autocomplete; subsequent words (after space) don't need extra BS.
     bool addrBarIsFirstWord_ = false;
+    // True when a space has been typed since activation in the address bar.
+    // Prevents re-arming addrBarIsFirstWord_ after backspacing a non-first
+    // word to empty — without this guard the fullReplace logic would send
+    // extra BS that deletes text before the cursor.
+    bool addrBarHadSpace_ = false;
     std::unique_ptr<EventSourceTime> addrBarCycleTimer_;
     std::string pendingUinputCommit_;
     std::vector<KeySym> bufferedUinputKeys_;
