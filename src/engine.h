@@ -145,6 +145,10 @@ private:
     int lastCommittedLen_ = 0;      // UTF-8 char count of last committed word
     bool reclaimReady_ = false;     // True after BS pressed while idle
     bool sepAlreadyDeleted_ = false; // Separator already deleted by first BS
+    // Runtime verification: set when a replacement needs surrounding text
+    // but ic_->surroundingText().isValid() returns false.  Once set,
+    // detectAutoMode() returns Uinput for the rest of this IC's lifetime.
+    bool surroundingTextFailed_ = false;
 };
 
 /// Main fcitx5 engine class.

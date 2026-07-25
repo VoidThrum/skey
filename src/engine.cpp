@@ -786,6 +786,13 @@ bool SKeyState::useUinputMode() const {
 }
 
 SKeyOutputMode SKeyState::detectAutoMode() const {
+  // Runtime override: if surrounding text API was verified as non-functional
+  // during a previous replacement attempt, stick with Uinput for this IC.
+  if (surroundingTextFailed_) {
+    SKEY_DEBUG() << "Auto: surrounding text previously failed → Uinput";
+    return SKeyOutputMode::Uinput;
+  }
+
   auto caps = ic_->capabilityFlags();
 
   if (!caps.test(CapabilityFlag::SurroundingText)) {
@@ -883,6 +890,7 @@ void SKeyState::activate() {
     viet_.reset();
     committedLen_ = 0;
     addrBarIsFirstWord_ = true;
+    surroundingTextFailed_ = false;  // fresh focus, re-verify
   }
   clearLastWord();
   modeMenuActive_ = false;
@@ -2303,7 +2311,15 @@ void SKeyState::surroundingCommit(const std::string &oldComposed,
         const auto &surrounding = ic_->surroundingText();
         if (!surrounding.isValid() ||
             surrounding.cursor() < static_cast<unsigned int>(deleteLen)) {
-          SKEY_DEBUG() << "Surr: native surrounding not ready";
+          // SurroundingText capability was advertised but the runtime
+          // data is invalid or missing.  Mark as failed so subsequent
+          // replacements use Uinput instead of retrying a dead API.
+          if (!surrounding.isValid()) {
+            surroundingTextFailed_ = true;
+            SKEY_DEBUG() << "Surr: surrounding text invalid, downgrading to uinput";
+          } else {
+            SKEY_DEBUG() << "Surr: native surrounding not ready";
+          }
           deleteViaBackspace();
         } else {
           ic_->deleteSurroundingText(-deleteLen, deleteLen);
@@ -2338,9 +2354,18 @@ void SKeyState::surroundingBackspace() {
                << " -> " << (committedLen_ - 1);
 
   if (useNativeSurroundingApi()) {
-    ic_->deleteSurroundingText(-1, 1);
-    if (ic_->surroundingText().isValid()) {
-      ic_->surroundingText().deleteText(-1, 1);
+    const auto &surrounding = ic_->surroundingText();
+    if (!surrounding.isValid()) {
+      // Surrounding text advertised but not actually available.
+      // Mark as failed and fall back to forwardKey.
+      surroundingTextFailed_ = true;
+      SKEY_DEBUG() << "SurrBS: surrounding text invalid, downgrading to uinput";
+      ic_->forwardKey(Key(FcitxKey_BackSpace));
+    } else {
+      ic_->deleteSurroundingText(-1, 1);
+      if (ic_->surroundingText().isValid()) {
+        ic_->surroundingText().deleteText(-1, 1);
+      }
     }
   } else {
     SKEY_DEBUG()
