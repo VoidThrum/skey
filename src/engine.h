@@ -90,8 +90,6 @@ private:
     skey::VietnameseEngine viet_;
     skey::Charset charset_ = skey::Charset::Unicode;
     int committedLen_ = 0;
-    SKeyOutputMode autoDetectedMode_ = SKeyOutputMode::Auto; // sentinel: not evaluated yet
-    int autoDowngradeKeysLeft_ = 0; // countdown: 0 = done, >0 = pending
 
     /// Commit text to the app, converting to the configured charset.
     void commitText(const std::string &utf8);

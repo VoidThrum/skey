@@ -254,6 +254,27 @@ static bool isChromiumBrowser(const std::string &prog) {
   return false;
 }
 
+static bool isTerminalApp(const std::string &prog) {
+  // Terminals have their own internal buffer — SurroundingText API
+  // doesn't sync correctly, so Uinput raw key pass-through works better.
+  static const char *const patterns[] = {
+      "konsole",       "org.kde.konsole",
+      "alacritty",     "kitty",
+      "gnome-terminal","xfce4-terminal",
+      "sterm",         "st-",
+      "terminator",    "terminology",
+      "wezterm",       "foot",
+      "urxvt",         "rxvt",
+      "xterm",
+  };
+  for (const char *p : patterns) {
+    if (prog.find(p) != std::string::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
 FCITX_ADDON_FACTORY(SKeyEngineFactory);
 
 // Candidate word for mode switch dropdown menu
@@ -745,15 +766,11 @@ SKeyOutputMode SKeyState::effectiveMode() const {
                       : engine_->config().outputMode.value();
 
   if (resolved == SKeyOutputMode::Auto) {
-    // Evaluate once per activation and cache — surrounding text may
-    // arrive asynchronously, so the first call's decision must stick.
-    if (autoDetectedMode_ == SKeyOutputMode::Auto) {
-      const_cast<SKeyState *>(this)->autoDetectedMode_ = detectAutoMode();
-      if (autoDetectedMode_ == SKeyOutputMode::SurroundingText) {
-        const_cast<SKeyState *>(this)->autoDowngradeKeysLeft_ = 3;
-      }
-    }
-    return autoDetectedMode_;
+    // Re-evaluate every call — capability flags can change if Chrome
+    // reconfigures the input context mid-session (e.g. switching between
+    // address bar and web content).  detectAutoMode() is just a cheap
+    // capability flag check, no IO or async work.
+    return detectAutoMode();
   }
   return resolved;
 }
@@ -771,30 +788,30 @@ bool SKeyState::useUinputMode() const {
 SKeyOutputMode SKeyState::detectAutoMode() const {
   auto caps = ic_->capabilityFlags();
 
-  // Terminal apps (Konsole, Alacritty, etc.) work better with raw key
-  // pass-through (Uinput) than with the SurroundingText API.
-  if (caps.test(CapabilityFlag::Terminal)) {
+  if (!caps.test(CapabilityFlag::SurroundingText)) {
+    SKEY_DEBUG() << "Auto: no SurroundingText cap → Uinput";
     return SKeyOutputMode::Uinput;
   }
 
-  if (caps.test(CapabilityFlag::SurroundingText)) {
-    // Chromium-based apps: SpellCheck reliably distinguishes real text
-    // inputs (Chrome/Firefox <input>/<textarea>/contenteditable) from
-    // Electron terminal views (Tabby) which advertise SurroundingText
-    // but never send it.  Without SpellCheck, SurroundingText mode
-    // degrades to forwardKey on every operation.
-    if (isChromiumBrowser(ic_->program()) &&
-        !caps.test(CapabilityFlag::SpellCheck)) {
-      SKEY_DEBUG() << "Auto: Chromium without SpellCheck,"
-                   << " fallback to Uinput";
-      return SKeyOutputMode::Uinput;
-    }
-    // Non-Chromium native apps (Antigravity, Telegram) or Chromium
-    // web content: trust SurroundingText if capability is set.
-    return SKeyOutputMode::SurroundingText;
+  // Terminal apps (Konsole, Alacritty, etc.) have their own internal
+  // buffer — SurroundingText API doesn't sync correctly, so Uinput
+  // raw key pass-through works better.
+  if (caps.test(CapabilityFlag::Terminal) ||
+      isTerminalApp(ic_->program())) {
+    SKEY_DEBUG() << "Auto: terminal app → Uinput";
+    return SKeyOutputMode::Uinput;
   }
 
-  return SKeyOutputMode::Uinput;
+  // Electron terminals (Tabby) advertise SurroundingText but the
+  // compositor only sends empty surrounding text.
+  if (isChromiumBrowser(ic_->program()) &&
+      !caps.test(CapabilityFlag::SpellCheck)) {
+    SKEY_DEBUG() << "Auto: Chromium without SpellCheck → Uinput";
+    return SKeyOutputMode::Uinput;
+  }
+
+  SKEY_DEBUG() << "Auto: SurroundingText cap + usable → SurroundingText";
+  return SKeyOutputMode::SurroundingText;
 }
 
 bool SKeyState::canEditWithSurroundingText() const {
@@ -872,6 +889,7 @@ void SKeyState::activate() {
   deferredCommitTimer_.reset();
   deferredCommitText_.clear();
   deferredPrefix_.clear();
+
   // Load per-app mode preference / exclusion.
   // IBus frontend reports empty program name — still try to load saved config.
   hasAppModeOverride_ = false;
@@ -1284,8 +1302,6 @@ void SKeyState::reset() {
   }
   clearLastWord();
   clearUI();
-  autoDetectedMode_ = SKeyOutputMode::Auto; // re-evaluate on next activation
-  autoDowngradeKeysLeft_ = 0;
 }
 
 void SKeyState::keyEvent(KeyEvent &keyEvent) {
@@ -2176,22 +2192,6 @@ void SKeyState::surroundingCommit(const std::string &oldComposed,
                                   const std::string &newComposed) {
   if (newComposed.empty())
     return;
-
-  // Lazy auto-mode downgrade: when Auto selected SurroundingText but
-  // the surrounding text never arrives, fall back to Uinput.  We check
-  // here (after text is committed) because only a commit can trigger
-  // the app to send surrounding text — idle keys like arrows don't.
-  if (autoDowngradeKeysLeft_ > 0) {
-    autoDowngradeKeysLeft_--;
-    if (autoDowngradeKeysLeft_ == 0) {
-      const auto &surrounding = ic_->surroundingText();
-      if (!surrounding.isValid() || surrounding.text().empty()) {
-        SKEY_DEBUG() << "Auto: no useful surrounding text after commits,"
-                     << " downgrade to Uinput";
-        autoDetectedMode_ = SKeyOutputMode::Uinput;
-      }
-    }
-  }
 
   int newLen = static_cast<int>(utf8::length(newComposed));
 
