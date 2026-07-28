@@ -55,6 +55,7 @@ private:
     const struct UinputTiming& uinputTiming() const;
     bool useHiddenComposition() const;
     bool useUinputMode() const;
+    bool isChromiumCached() const;
     SKeyOutputMode detectAutoMode() const;
     bool connectUinputServer();
     void sendBackspaceUinput(int count, const std::string &text = "",
@@ -100,6 +101,9 @@ private:
     bool appExcluded_ = false;
     SKeyOutputMode appModeOverride_ = SKeyOutputMode::SurroundingText;
     std::string cachedProgram_{"\x01"};  // sentinel ≠ any real program name, incl. empty
+    mutable bool modeCacheValid_ = false;
+    mutable SKeyOutputMode cachedMode_ = SKeyOutputMode::SurroundingText;
+    mutable int cachedIsChromium_ = -1;  // tristate: -1=unset, 0=false, 1=true
     std::unique_ptr<EventSourceTime> deferredCommitTimer_;
     std::string deferredCommitText_;
     std::string deferredPrefix_;

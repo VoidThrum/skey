@@ -368,18 +368,18 @@ if [ -f /usr/share/pixmaps/fcitx-skey.png ]; then
         if [ -n "$CURRENT_THEME" ] && [ -d "$ICONS_BASE/$CURRENT_THEME" ]; then
             # Install SVG to all common status (tray) sizes
             for size in 22 24 "24@2x" "24@3x" 32; do
-                mkdir -p "$ICONS_BASE/$CURRENT_THEME/status/$size"
+                mkdir -p "$ICONS_BASE/$CURRENT_THEME/status/$size" 2>/dev/null || continue
                 cp /usr/share/icons/hicolor/scalable/status/fcitx-skey.svg \
                    "$ICONS_BASE/$CURRENT_THEME/status/$size/fcitx-skey.svg" 2>/dev/null || true
             done
             # Install SVG to all common apps sizes
             for size in 32 48 "48@2x" 128; do
-                mkdir -p "$ICONS_BASE/$CURRENT_THEME/apps/$size"
+                mkdir -p "$ICONS_BASE/$CURRENT_THEME/apps/$size" 2>/dev/null || continue
                 cp /usr/share/icons/hicolor/scalable/apps/fcitx-skey.svg \
                    "$ICONS_BASE/$CURRENT_THEME/apps/$size/fcitx-skey.svg" 2>/dev/null || true
             done
             # Also copy scalable SVG for generic lookups
-            mkdir -p "$ICONS_BASE/$CURRENT_THEME/scalable/apps"
+            mkdir -p "$ICONS_BASE/$CURRENT_THEME/scalable/apps" 2>/dev/null || true
             cp /usr/share/icons/hicolor/scalable/apps/fcitx-skey.svg \
                "$ICONS_BASE/$CURRENT_THEME/scalable/apps/fcitx-skey.svg" 2>/dev/null || true
             echo "✓ Icon installed to theme: $CURRENT_THEME ($ICONS_BASE)"

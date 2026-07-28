@@ -875,6 +875,11 @@ bool SKeyState::inChromiumAddressBar() const {
 }
 
 SKeyOutputMode SKeyState::effectiveMode() const {
+  // Cache result — capability flags only change on activate (focus switch).
+  // This avoids calling detectAutoMode() (which scans /proc via
+  // isChromiumBasedApp) multiple times per keystroke.
+  if (modeCacheValid_) return cachedMode_;
+
   const_cast<SKeyState *>(this)->refreshAppMode();
 
   // Address bar output mode overrides the general and per-application modes.
@@ -884,11 +889,17 @@ SKeyOutputMode SKeyState::effectiveMode() const {
     case SKeyChromiumAddressBarMode::Auto:
       break; // fall through to normal Auto detection below
     case SKeyChromiumAddressBarMode::Uinput:
-      return SKeyOutputMode::Uinput;
+      cachedMode_ = SKeyOutputMode::Uinput;
+      modeCacheValid_ = true;
+      return cachedMode_;
     case SKeyChromiumAddressBarMode::SurroundingText:
-      return SKeyOutputMode::SurroundingText;
+      cachedMode_ = SKeyOutputMode::SurroundingText;
+      modeCacheValid_ = true;
+      return cachedMode_;
     case SKeyChromiumAddressBarMode::Preedit:
-      return SKeyOutputMode::Preedit;
+      cachedMode_ = SKeyOutputMode::Preedit;
+      modeCacheValid_ = true;
+      return cachedMode_;
     case SKeyChromiumAddressBarMode::NoVietnamese:
       break;
     }
@@ -899,13 +910,12 @@ SKeyOutputMode SKeyState::effectiveMode() const {
                       : engine_->config().outputMode.value();
 
   if (resolved == SKeyOutputMode::Auto) {
-    // Re-evaluate every call — capability flags can change if Chrome
-    // reconfigures the input context mid-session (e.g. switching between
-    // address bar and web content).  detectAutoMode() is just a cheap
-    // capability flag check, no IO or async work.
-    return detectAutoMode();
+    cachedMode_ = detectAutoMode();
+  } else {
+    cachedMode_ = resolved;
   }
-  return resolved;
+  modeCacheValid_ = true;
+  return cachedMode_;
 }
 
 bool SKeyState::useSurroundingText() const {
@@ -948,7 +958,8 @@ SKeyOutputMode SKeyState::detectAutoMode() const {
   // full browsers (Chrome, Edge) set it, but Electron shells don't.
   // Only demote apps that match known Chromium-based patterns — native
   // apps (Telegram, Qt/GTK) have a working SurroundingText impl.
-  if (isChromiumBasedApp(ic_->program()) &&
+  //
+  if (isChromiumCached() &&
       !caps.test(CapabilityFlag::SpellCheck) &&
       isWayland() &&
       caps.test(CapabilityFlag::SurroundingText)) {
@@ -958,7 +969,7 @@ SKeyOutputMode SKeyState::detectAutoMode() const {
 
   // Same for non-Wayland (X11/XWayland): Electron apps without
   // SpellCheck have broken SurroundingText (e.g. Tabby).
-  if (isChromiumBasedApp(ic_->program()) &&
+  if (isChromiumCached() &&
       !caps.test(CapabilityFlag::SpellCheck)) {
     SKEY_DEBUG() << "Auto: Chromium without SpellCheck → Uinput";
     return SKeyOutputMode::Uinput;
@@ -973,8 +984,19 @@ bool SKeyState::canEditWithSurroundingText() const {
          ic_->capabilityFlags().test(CapabilityFlag::SurroundingText);
 }
 
+bool SKeyState::isChromiumCached() const {
+  if (cachedIsChromium_ < 0) {
+    cachedIsChromium_ = isChromiumBasedApp(ic_->program()) ? 1 : 0;
+  }
+  return cachedIsChromium_ == 1;
+}
+
 bool SKeyState::useNativeSurroundingApi() const {
-  return !useUinputMode() && canEditWithSurroundingText();
+  // Single effectiveMode() call — avoids double-evaluating detectAutoMode()
+  // (which scans /proc via isChromiumBasedApp) on every keystroke.
+  auto mode = effectiveMode();
+  return mode == SKeyOutputMode::SurroundingText &&
+         ic_->capabilityFlags().test(CapabilityFlag::SurroundingText);
 }
 
 bool SKeyState::isWayland() const {
@@ -1091,6 +1113,10 @@ void SKeyState::activate() {
       }
     }
   }
+
+  // Invalidate mode cache — new focus means caps/program may have changed.
+  modeCacheValid_ = false;
+  cachedIsChromium_ = -1;
 
   auto caps = ic_->capabilityFlags();
   auto mode = effectiveMode();
@@ -1277,7 +1303,7 @@ bool SKeyState::handlePendingUinputBackspace(KeyEvent &keyEvent) {
     // Chromium/Electron apps have multi-process architecture (renderer
     // + main process + IPC) — they need extra time to process BS before
     // commitString arrives.  Apply the configured delay factor.
-    if (!inChromiumAddressBar() && isChromiumBasedApp(ic_->program())) {
+    if (!inChromiumAddressBar() && isChromiumCached()) {
       minDelay = static_cast<uint64_t>(minDelay * timing.chromiumDelayFactor);
       maxDelay = static_cast<uint64_t>(maxDelay * timing.chromiumDelayFactor);
     }
@@ -1288,7 +1314,7 @@ bool SKeyState::handlePendingUinputBackspace(KeyEvent &keyEvent) {
                  << "ms), commit '" << commitText << "' in "
                  << (delayUsec / 1000) << "ms"
                  << (inChromiumAddressBar() ? " [addrbar]" : "")
-                 << (isChromiumBasedApp(ic_->program()) ? " [chromium]" : "");
+                 << (isChromiumCached() ? " [chromium]" : "");
 
     uinputCommitTimer_ = engine_->instance()->eventLoop().addTimeEvent(
         CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + delayUsec, 0,
@@ -1482,6 +1508,8 @@ void SKeyState::reset() {
   if (!hasDeferredCommitPending()) {
     committedLen_ = 0;
   }
+  modeCacheValid_ = false;
+  cachedIsChromium_ = -1;
   clearLastWord();
   clearUI();
 }
@@ -1999,7 +2027,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
           // In surrounding text mode, oldComposed is already on screen.
           // Replace it with committed + newComposed.
           // Set trigger-key guard for Chromium (see same logic below).
-          if (isChromiumBasedApp(ic_->program()) && !oldComposed.empty()) {
+          if (isChromiumCached() && !oldComposed.empty()) {
             addrBarLastTriggerKey_ = static_cast<int>(sym);
             addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) + 200000;
           }
@@ -2121,7 +2149,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
           // SurroundingText path in Chromium: set trigger-key guard so
           // X11 re-delivery after forwardKey-induced focus cycles is dropped.
           // Only for replacements (oldComposed non-empty), not first char.
-          if (isChromiumBasedApp(ic_->program()) &&
+          if (isChromiumCached() &&
               !oldComposed.empty() && oldComposed != newComposed) {
             addrBarLastTriggerKey_ = static_cast<int>(sym);
             addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) + 200000;
@@ -2481,7 +2509,7 @@ void SKeyState::surroundingCommit(const std::string &oldComposed,
         // SurroundingText forwardKey path: D-Bus forwardKey may trigger
         // Chrome focus cycles (omnibox autocomplete).  Protect engine state
         // even when inChromiumAddressBar() wasn't detected (AT-SPI2 race).
-        if (isChromiumBasedApp(ic_->program())) {
+        if (isChromiumCached()) {
           addrBarExpectCycle_ = true;
         }
         for (int i = 0; i < deleteLen; ++i) {
@@ -2508,6 +2536,7 @@ void SKeyState::surroundingCommit(const std::string &oldComposed,
           // replacements use Uinput instead of retrying a dead API.
           if (!surrounding.isValid()) {
             surroundingTextFailed_ = true;
+            modeCacheValid_ = false;
             SKEY_DEBUG() << "Surr: surrounding text invalid, downgrading to uinput";
           } else {
             SKEY_DEBUG() << "Surr: native surrounding not ready";
@@ -2551,6 +2580,7 @@ void SKeyState::surroundingBackspace() {
       // Surrounding text advertised but not actually available.
       // Mark as failed and fall back to forwardKey.
       surroundingTextFailed_ = true;
+      modeCacheValid_ = false;
       SKEY_DEBUG() << "SurrBS: surrounding text invalid, downgrading to uinput";
       ic_->forwardKey(Key(FcitxKey_BackSpace));
     } else {
