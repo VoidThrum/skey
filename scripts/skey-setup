@@ -346,6 +346,48 @@ if command -v systemctl >/dev/null 2>&1; then
     fi
 fi
 
+# ── Icon: ensure visible in the current icon theme ──
+# Some third-party themes (Vivid-Glassy-Dark, etc.) lack an index.theme
+# and don't inherit hicolor, so fcitx5 and the taskbar can't find the
+# skey icon.  Copy the PNG into the current theme's status + apps dirs.
+if [ -f /usr/share/pixmaps/fcitx-skey.png ]; then
+    # Detect the REAL user's icon theme (not root's when running via sudo).
+    THEME_USER="${SUDO_USER:-$USER}"
+    CURRENT_THEME=""
+    # KDE
+    THEME_HOME=$(eval echo ~"$THEME_USER")
+    if [ -f "$THEME_HOME/.config/kdeglobals" ]; then
+        CURRENT_THEME=$(grep -Po '^Theme=\K.*' "$THEME_HOME/.config/kdeglobals" 2>/dev/null || true)
+    fi
+    # GTK / fallback
+    if [ -z "$CURRENT_THEME" ] && command -v gsettings >/dev/null 2>&1; then
+        CURRENT_THEME=$(su - "$THEME_USER" -c "gsettings get org.gnome.desktop.interface icon-theme" 2>/dev/null | tr -d "'" || true)
+    fi
+    # Theme may be system-wide or user-local (~/.local/share/icons/)
+    for ICONS_BASE in "/usr/share/icons" "$THEME_HOME/.local/share/icons"; do
+        if [ -n "$CURRENT_THEME" ] && [ -d "$ICONS_BASE/$CURRENT_THEME" ]; then
+            # Install SVG to all common status (tray) sizes
+            for size in 22 24 "24@2x" "24@3x" 32; do
+                mkdir -p "$ICONS_BASE/$CURRENT_THEME/status/$size"
+                cp /usr/share/icons/hicolor/scalable/status/fcitx-skey.svg \
+                   "$ICONS_BASE/$CURRENT_THEME/status/$size/fcitx-skey.svg" 2>/dev/null || true
+            done
+            # Install SVG to all common apps sizes
+            for size in 32 48 "48@2x" 128; do
+                mkdir -p "$ICONS_BASE/$CURRENT_THEME/apps/$size"
+                cp /usr/share/icons/hicolor/scalable/apps/fcitx-skey.svg \
+                   "$ICONS_BASE/$CURRENT_THEME/apps/$size/fcitx-skey.svg" 2>/dev/null || true
+            done
+            # Also copy scalable SVG for generic lookups
+            mkdir -p "$ICONS_BASE/$CURRENT_THEME/scalable/apps"
+            cp /usr/share/icons/hicolor/scalable/apps/fcitx-skey.svg \
+               "$ICONS_BASE/$CURRENT_THEME/scalable/apps/fcitx-skey.svg" 2>/dev/null || true
+            echo "✓ Icon installed to theme: $CURRENT_THEME ($ICONS_BASE)"
+            break
+        fi
+    done
+fi
+
 echo ""
 echo "Done! skey is now the default Vietnamese input method."
 echo "Toggle with Ctrl+Space. Settings: fcitx5-configtool"

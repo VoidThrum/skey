@@ -53,7 +53,7 @@ void InfoTab::setupUI() {
 
     // ── Icon ──
     auto *iconLabel = new QLabel(this);
-    QIcon icon = QIcon::fromTheme("fcitx-skey");
+    QIcon icon("/usr/share/icons/hicolor/128x128/apps/fcitx-skey.png");
     if (!icon.isNull()) {
         iconLabel->setPixmap(icon.pixmap(64, 64));
     } else {

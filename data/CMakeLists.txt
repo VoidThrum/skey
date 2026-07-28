@@ -2,25 +2,55 @@
 # apps/ — app launcher and IM list popup
 install(FILES icons/fcitx-skey.svg
     DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")
+# pixmaps/ — last-resort fallback for all DEs, Qt, GTK, KWin.
+# KDE checks pixmaps when the current icon theme lacks an index.theme
+# (e.g. third-party themes like Vivid-Glassy-Dark that don't inherit hicolor).
+install(FILES icons/fcitx-skey.svg
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/pixmaps"
+    RENAME "fcitx-skey.svg")
+# Generate a 128px PNG for pixmaps (no SVG renderer in KWin/plasmashell)
+if(RSVG_CONVERT)
+    set(SVG_ICON "${CMAKE_CURRENT_SOURCE_DIR}/icons/fcitx-skey.svg")
+    set(PIXMAPS_PNG "${CMAKE_CURRENT_BINARY_DIR}/pixmaps/fcitx-skey.png")
+    add_custom_command(
+        OUTPUT ${PIXMAPS_PNG}
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/pixmaps"
+        COMMAND ${RSVG_CONVERT} -w 128 -h 128 "${SVG_ICON}" -o ${PIXMAPS_PNG}
+        DEPENDS "${SVG_ICON}"
+        COMMENT "Generating 128x128 pixmaps icon"
+    )
+    install(FILES ${PIXMAPS_PNG}
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/pixmaps"
+        RENAME "fcitx-skey.png")
+    list(APPEND PNG_ICONS ${PIXMAPS_PNG})
+endif()
 
 # status/ — KDE system tray (system tray uses 'status' icon context, not 'apps')
 # Hicolor fallback (works for all themes)
 install(FILES icons/fcitx-skey.svg
     DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/status"
     RENAME "fcitx-skey.svg")
-# KDE Breeze theme
+# KDE Breeze theme — status (system tray)
 install(FILES icons/fcitx-skey.svg
     DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/breeze/status/22"
     RENAME "fcitx-skey.svg")
 install(FILES icons/fcitx-skey.svg
     DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/breeze/status/24"
     RENAME "fcitx-skey.svg")
-# KDE Breeze Dark theme
+# KDE Breeze theme — apps (taskbar via .desktop Icon= lookup)
+install(FILES icons/fcitx-skey.svg
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/breeze/apps/48"
+    RENAME "fcitx-skey.svg")
+# KDE Breeze Dark theme — status (system tray)
 install(FILES icons/fcitx-skey.svg
     DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/breeze-dark/status/22"
     RENAME "fcitx-skey.svg")
 install(FILES icons/fcitx-skey.svg
     DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/breeze-dark/status/24"
+    RENAME "fcitx-skey.svg")
+# KDE Breeze Dark theme — apps (taskbar via .desktop Icon= lookup)
+install(FILES icons/fcitx-skey.svg
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/breeze-dark/apps/48"
     RENAME "fcitx-skey.svg")
 
 # PNG icons for apps/ (launcher, menus) and status/ (system tray)
