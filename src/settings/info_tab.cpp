@@ -8,11 +8,12 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
-#include <QProcess>
-#include <QTimer>
+#include <QPainter>
+#include <QPainterPath>
 #include <QProcess>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -20,190 +21,188 @@
 #define SKEY_VERSION "0.1.0"
 #endif
 
-static const char *kGitHubUrl  = "https://github.com/collyn/skey";
+static const char *kGitHubUrl = "https://github.com/collyn/skey";
 
 InfoTab::InfoTab(QWidget *parent) : QWidget(parent) {
-    updater_ = new Updater(SKEY_VERSION, this);
+  updater_ = new Updater(SKEY_VERSION, this);
 
-    // Connect updater signals
-    connect(updater_, &Updater::updateAvailable,
-            this, &InfoTab::onUpdateAvailable);
-    connect(updater_, &Updater::noUpdateAvailable,
-            this, &InfoTab::onNoUpdate);
-    connect(updater_, &Updater::checkFailed,
-            this, &InfoTab::onCheckFailed);
-    connect(updater_, &Updater::downloadProgress,
-            this, &InfoTab::onDownloadProgress);
-    connect(updater_, &Updater::downloadFinished,
-            this, &InfoTab::onDownloadFinished);
-    connect(updater_, &Updater::downloadFailed,
-            this, &InfoTab::onDownloadFailed);
-    connect(updater_, &Updater::installStarted,
-            this, &InfoTab::onInstallStarted);
-    connect(updater_, &Updater::installFinished,
-            this, &InfoTab::onInstallFinished);
+  // Connect updater signals
+  connect(updater_, &Updater::updateAvailable, this,
+          &InfoTab::onUpdateAvailable);
+  connect(updater_, &Updater::noUpdateAvailable, this, &InfoTab::onNoUpdate);
+  connect(updater_, &Updater::checkFailed, this, &InfoTab::onCheckFailed);
+  connect(updater_, &Updater::downloadProgress, this,
+          &InfoTab::onDownloadProgress);
+  connect(updater_, &Updater::downloadFinished, this,
+          &InfoTab::onDownloadFinished);
+  connect(updater_, &Updater::downloadFailed, this, &InfoTab::onDownloadFailed);
+  connect(updater_, &Updater::installStarted, this, &InfoTab::onInstallStarted);
+  connect(updater_, &Updater::installFinished, this,
+          &InfoTab::onInstallFinished);
 
-    setupUI();
+  setupUI();
 }
 
 void InfoTab::setupUI() {
-    auto *mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(16, 16, 16, 16);
-    mainLayout->setSpacing(12);
+  auto *mainLayout = new QVBoxLayout(this);
+  mainLayout->setContentsMargins(16, 16, 16, 16);
+  mainLayout->setSpacing(12);
 
-    // ── Icon ──
-    auto *iconLabel = new QLabel(this);
-    QIcon icon("/usr/share/icons/hicolor/128x128/apps/fcitx-skey.png");
-    if (!icon.isNull()) {
-        iconLabel->setPixmap(icon.pixmap(64, 64));
-    } else {
-        iconLabel->setText(QString::fromUtf8("🇻🇳"));
-        iconLabel->setStyleSheet("font-size: 48px;");
-    }
-    iconLabel->setAlignment(Qt::AlignCenter);
-    mainLayout->addWidget(iconLabel);
+  // ── Icon ──
+  auto *iconLabel = new QLabel(this);
+  iconLabel->setFixedSize(80, 80);
+  iconLabel->setAlignment(Qt::AlignCenter);
+  iconLabel->setStyleSheet(
+      "QLabel { border-radius: 12px; background: transparent; }");
+  QIcon icon("/usr/share/icons/hicolor/128x128/apps/fcitx-skey.png");
+  if (!icon.isNull()) {
+    qreal dpr = iconLabel->devicePixelRatioF();
+    int pxSize = static_cast<int>(80 * dpr);
+    QPixmap src = icon.pixmap(pxSize, pxSize);
+    src.setDevicePixelRatio(dpr);
+    // Render with rounded corners via a clipped painter
+    QPixmap rounded(pxSize, pxSize);
+    rounded.setDevicePixelRatio(dpr);
+    rounded.fill(Qt::transparent);
+    QPainter painter(&rounded);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    QPainterPath path;
+    path.addRoundedRect(QRectF(0, 0, 80, 80), 12, 12);
+    painter.setClipPath(path);
+    painter.drawPixmap(QRectF(0, 0, 80, 80), src, QRectF(0, 0, 80, 80));
+    painter.end();
+    iconLabel->setPixmap(rounded);
+  } else {
+    iconLabel->setText(QString::fromUtf8("🇻🇳"));
+    iconLabel->setStyleSheet("font-size: 48px;");
+  }
+  mainLayout->addWidget(iconLabel, 0, Qt::AlignHCenter);
 
-    // ── Name & description ──
-    auto *nameLabel = new QLabel("Skey", this);
-    nameLabel->setAlignment(Qt::AlignCenter);
-    nameLabel->setStyleSheet("font-size: 18px; font-weight: bold;");
-    mainLayout->addWidget(nameLabel);
+  // ── Description ──
+  auto *descLabel =
+      new QLabel(QString::fromUtf8("Skey - Bộ gõ tiếng Việt cho Fcitx5"), this);
+  descLabel->setAlignment(Qt::AlignCenter);
+  descLabel->setWordWrap(true);
+  mainLayout->addWidget(descLabel);
 
-    auto *descLabel = new QLabel(
-        QString::fromUtf8("Bộ gõ tiếng Việt cho Fcitx5\n"
-                          "Hỗ trợ Telex, VNI"),
-        this);
-    descLabel->setAlignment(Qt::AlignCenter);
-    descLabel->setWordWrap(true);
-    mainLayout->addWidget(descLabel);
+  // ── Version ──
+  versionLabel_ =
+      new QLabel(QString::fromUtf8("Phiên bản: ") + SKEY_VERSION, this);
+  versionLabel_->setAlignment(Qt::AlignCenter);
+  versionLabel_->setStyleSheet("font-size: 13px;");
+  mainLayout->addWidget(versionLabel_);
 
-    // ── Version ──
-    versionLabel_ = new QLabel(
-        QString::fromUtf8("Phiên bản: ") + SKEY_VERSION, this);
-    versionLabel_->setAlignment(Qt::AlignCenter);
-    versionLabel_->setStyleSheet("font-size: 13px;");
-    mainLayout->addWidget(versionLabel_);
+  // ── Separator ──
+  auto *sep1 = new QFrame(this);
+  sep1->setFrameShape(QFrame::HLine);
+  sep1->setFrameShadow(QFrame::Sunken);
+  mainLayout->addWidget(sep1);
 
-    // ── Separator ──
-    auto *sep1 = new QFrame(this);
-    sep1->setFrameShape(QFrame::HLine);
-    sep1->setFrameShadow(QFrame::Sunken);
-    mainLayout->addWidget(sep1);
+  // ── GitHub link ──
+  auto *linkLabel = new QLabel(this);
+  linkLabel->setText(
+      QString::fromUtf8("<a href=\"%1\">%1</a>").arg(kGitHubUrl));
+  linkLabel->setTextFormat(Qt::RichText);
+  linkLabel->setOpenExternalLinks(true);
+  linkLabel->setAlignment(Qt::AlignCenter);
+  linkLabel->setCursor(Qt::PointingHandCursor);
+  mainLayout->addWidget(linkLabel);
 
-    // ── GitHub link ──
-    auto *linkLabel = new QLabel(this);
-    linkLabel->setText(
-        QString::fromUtf8("<a href=\"%1\">%1</a>").arg(kGitHubUrl));
-    linkLabel->setTextFormat(Qt::RichText);
-    linkLabel->setOpenExternalLinks(true);
-    linkLabel->setAlignment(Qt::AlignCenter);
-    linkLabel->setCursor(Qt::PointingHandCursor);
-    mainLayout->addWidget(linkLabel);
+  // ── Buttons row ──
+  auto *btnRow = new QHBoxLayout();
+  btnRow->setSpacing(8);
 
-    // ── Buttons row ──
-    auto *btnRow = new QHBoxLayout();
-    btnRow->setSpacing(8);
+  auto *githubBtn = new QPushButton(QString::fromUtf8("GitHub"), this);
+  connect(githubBtn, &QPushButton::clicked, this, &InfoTab::onOpenGitHub);
 
-    auto *githubBtn = new QPushButton(
-        QString::fromUtf8("GitHub"), this);
-    connect(githubBtn, &QPushButton::clicked,
-            this, &InfoTab::onOpenGitHub);
+  updateBtn_ = new QPushButton(QString::fromUtf8("Kiểm tra cập nhật"), this);
+  connect(updateBtn_, &QPushButton::clicked, this, &InfoTab::onCheckUpdate);
 
-    updateBtn_ = new QPushButton(
-        QString::fromUtf8("Kiểm tra cập nhật"), this);
-    connect(updateBtn_, &QPushButton::clicked,
-            this, &InfoTab::onCheckUpdate);
+  restartBtn_ =
+      new QPushButton(QString::fromUtf8("Khởi động lại Fcitx5"), this);
+  connect(restartBtn_, &QPushButton::clicked, this, &InfoTab::onRestartFcitx5);
 
-    restartBtn_ = new QPushButton(
-        QString::fromUtf8("Khởi động lại Fcitx5"), this);
-    connect(restartBtn_, &QPushButton::clicked,
-            this, &InfoTab::onRestartFcitx5);
+  btnRow->addStretch();
+  btnRow->addWidget(githubBtn);
+  btnRow->addWidget(updateBtn_);
+  btnRow->addWidget(restartBtn_);
+  btnRow->addStretch();
+  mainLayout->addLayout(btnRow);
 
-    btnRow->addStretch();
-    btnRow->addWidget(githubBtn);
-    btnRow->addWidget(updateBtn_);
-    btnRow->addWidget(restartBtn_);
-    btnRow->addStretch();
-    mainLayout->addLayout(btnRow);
+  // ── Status label (hidden by default) ──
+  statusLabel_ = new QLabel(this);
+  statusLabel_->setAlignment(Qt::AlignCenter);
+  statusLabel_->setStyleSheet("font-size: 12px; color: #666;");
+  statusLabel_->hide();
+  mainLayout->addWidget(statusLabel_);
 
-    // ── Status label (hidden by default) ──
-    statusLabel_ = new QLabel(this);
-    statusLabel_->setAlignment(Qt::AlignCenter);
-    statusLabel_->setStyleSheet("font-size: 12px; color: #666;");
-    statusLabel_->hide();
-    mainLayout->addWidget(statusLabel_);
+  // ── Progress bar (hidden by default) ──
+  progressBar_ = new QProgressBar(this);
+  progressBar_->setRange(0, 100);
+  progressBar_->setValue(0);
+  progressBar_->setTextVisible(true);
+  progressBar_->hide();
+  mainLayout->addWidget(progressBar_);
 
-    // ── Progress bar (hidden by default) ──
-    progressBar_ = new QProgressBar(this);
-    progressBar_->setRange(0, 100);
-    progressBar_->setValue(0);
-    progressBar_->setTextVisible(true);
-    progressBar_->hide();
-    mainLayout->addWidget(progressBar_);
+  // ── Separator ──
+  auto *sep2 = new QFrame(this);
+  sep2->setFrameShape(QFrame::HLine);
+  sep2->setFrameShadow(QFrame::Sunken);
+  mainLayout->addWidget(sep2);
 
-    // ── Separator ──
-    auto *sep2 = new QFrame(this);
-    sep2->setFrameShape(QFrame::HLine);
-    sep2->setFrameShadow(QFrame::Sunken);
-    mainLayout->addWidget(sep2);
+  // ── Contact info ──
+  auto *contactTitle = new QLabel(QString::fromUtf8("Liên hệ"), this);
+  contactTitle->setAlignment(Qt::AlignCenter);
+  contactTitle->setStyleSheet("font-weight: bold; font-size: 13px;");
+  mainLayout->addWidget(contactTitle);
 
-    // ── Contact info ──
-    auto *contactTitle = new QLabel(
-        QString::fromUtf8("Liên hệ"), this);
-    contactTitle->setAlignment(Qt::AlignCenter);
-    contactTitle->setStyleSheet("font-weight: bold; font-size: 13px;");
-    mainLayout->addWidget(contactTitle);
+  auto *authorLabel = new QLabel(QString::fromUtf8("Nguyễn Tiến Huy"), this);
+  authorLabel->setAlignment(Qt::AlignCenter);
+  mainLayout->addWidget(authorLabel);
 
-    auto *authorLabel = new QLabel(
-        QString::fromUtf8("Nguyễn Tiến Huy"), this);
-    authorLabel->setAlignment(Qt::AlignCenter);
-    mainLayout->addWidget(authorLabel);
+  auto *emailLabel = new QLabel(this);
+  emailLabel->setText(QString::fromUtf8(
+      "<a href=\"mailto:collyn094@gmail.com\">collyn094@gmail.com</a>"));
+  emailLabel->setTextFormat(Qt::RichText);
+  emailLabel->setOpenExternalLinks(true);
+  emailLabel->setAlignment(Qt::AlignCenter);
+  emailLabel->setCursor(Qt::PointingHandCursor);
+  mainLayout->addWidget(emailLabel);
 
-    auto *emailLabel = new QLabel(this);
-    emailLabel->setText(
-        QString::fromUtf8("<a href=\"mailto:collyn094@gmail.com\">collyn094@gmail.com</a>"));
-    emailLabel->setTextFormat(Qt::RichText);
-    emailLabel->setOpenExternalLinks(true);
-    emailLabel->setAlignment(Qt::AlignCenter);
-    emailLabel->setCursor(Qt::PointingHandCursor);
-    mainLayout->addWidget(emailLabel);
-
-    mainLayout->addStretch();
+  mainLayout->addStretch();
 }
 
 // ── Button handlers ─────────────────────────────────────────────────────
 
 void InfoTab::onCheckUpdate() {
-    updateBtn_->setEnabled(false);
-    updateBtn_->setText(QString::fromUtf8("Đang kiểm tra..."));
-    statusLabel_->setText(QString::fromUtf8("Đang kết nối tới GitHub..."));
-    statusLabel_->setStyleSheet("font-size: 12px; color: #666;");
-    statusLabel_->show();
-    progressBar_->hide();
+  updateBtn_->setEnabled(false);
+  updateBtn_->setText(QString::fromUtf8("Đang kiểm tra..."));
+  statusLabel_->setText(QString::fromUtf8("Đang kết nối tới GitHub..."));
+  statusLabel_->setStyleSheet("font-size: 12px; color: #666;");
+  statusLabel_->show();
+  progressBar_->hide();
 
-    updater_->checkForUpdate();
+  updater_->checkForUpdate();
 }
 
-void InfoTab::onOpenGitHub() {
-    QDesktopServices::openUrl(QUrl(kGitHubUrl));
-}
+void InfoTab::onOpenGitHub() { QDesktopServices::openUrl(QUrl(kGitHubUrl)); }
 
 void InfoTab::onRestartFcitx5() {
-    restartBtn_->setEnabled(false);
-    restartBtn_->setText(QString::fromUtf8("Đang khởi động lại..."));
-    statusLabel_->setText(QString::fromUtf8("Đang khởi động lại Fcitx5..."));
-    statusLabel_->setStyleSheet("font-size: 12px; color: #666;");
-    statusLabel_->show();
+  restartBtn_->setEnabled(false);
+  restartBtn_->setText(QString::fromUtf8("Đang khởi động lại..."));
+  statusLabel_->setText(QString::fromUtf8("Đang khởi động lại Fcitx5..."));
+  statusLabel_->setStyleSheet("font-size: 12px; color: #666;");
+  statusLabel_->show();
 
-    // Force UI update before blocking
-    QApplication::processEvents();
+  // Force UI update before blocking
+  QApplication::processEvents();
 
-    restartFcitx5();
+  restartFcitx5();
 
-    restartBtn_->setEnabled(true);
-    restartBtn_->setText(QString::fromUtf8("Khởi động lại Fcitx5"));
-    statusLabel_->setText(QString::fromUtf8("✓ Fcitx5 đã được khởi động lại"));
-    statusLabel_->setStyleSheet("font-size: 12px; color: green;");
+  restartBtn_->setEnabled(true);
+  restartBtn_->setText(QString::fromUtf8("Khởi động lại Fcitx5"));
+  statusLabel_->setText(QString::fromUtf8("✓ Fcitx5 đã được khởi động lại"));
+  statusLabel_->setStyleSheet("font-size: 12px; color: green;");
 }
 
 // ── Updater: check result slots ─────────────────────────────────────────
@@ -211,128 +210,121 @@ void InfoTab::onRestartFcitx5() {
 void InfoTab::onUpdateAvailable(const QString &newVersion,
                                 const QString &downloadUrl,
                                 const QString &releaseNotes) {
-    updateBtn_->setEnabled(true);
-    updateBtn_->setText(QString::fromUtf8("Kiểm tra cập nhật"));
-    statusLabel_->hide();
+  updateBtn_->setEnabled(true);
+  updateBtn_->setText(QString::fromUtf8("Kiểm tra cập nhật"));
+  statusLabel_->hide();
 
-    pendingDownloadUrl_ = downloadUrl;
-    pendingVersion_ = newVersion;
+  pendingDownloadUrl_ = downloadUrl;
+  pendingVersion_ = newVersion;
 
-    QString msg = QString::fromUtf8(
-        "Có phiên bản mới: v%1\n"
-        "(Phiên bản hiện tại: %2)\n")
-        .arg(newVersion, SKEY_VERSION);
+  QString msg = QString::fromUtf8("Có phiên bản mới: v%1\n"
+                                  "(Phiên bản hiện tại: %2)\n")
+                    .arg(newVersion, SKEY_VERSION);
 
-    if (!releaseNotes.isEmpty()) {
-        msg += QString::fromUtf8("\nGhi chú:\n%1").arg(releaseNotes);
-    }
+  if (!releaseNotes.isEmpty()) {
+    msg += QString::fromUtf8("\nGhi chú:\n%1").arg(releaseNotes);
+  }
 
-    if (downloadUrl.isEmpty()) {
-        msg += QString::fromUtf8(
-            "\n\nKhông tìm thấy file .deb. "
-            "Vui lòng tải thủ công từ GitHub.");
-        QMessageBox::information(this,
-                                 QString::fromUtf8("Có bản cập nhật"), msg);
-        return;
-    }
+  if (downloadUrl.isEmpty()) {
+    msg += QString::fromUtf8("\n\nKhông tìm thấy file .deb. "
+                             "Vui lòng tải thủ công từ GitHub.");
+    QMessageBox::information(this, QString::fromUtf8("Có bản cập nhật"), msg);
+    return;
+  }
 
-    QMessageBox msgBox(this);
-    msgBox.setWindowTitle(QString::fromUtf8("Có bản cập nhật"));
-    msgBox.setText(msg);
-    msgBox.setIcon(QMessageBox::Information);
-    auto *yesBtn = msgBox.addButton(
-        QString::fromUtf8("Cập nhật ngay"), QMessageBox::AcceptRole);
-    msgBox.addButton(
-        QString::fromUtf8("Bỏ qua"), QMessageBox::RejectRole);
-    msgBox.exec();
+  QMessageBox msgBox(this);
+  msgBox.setWindowTitle(QString::fromUtf8("Có bản cập nhật"));
+  msgBox.setText(msg);
+  msgBox.setIcon(QMessageBox::Information);
+  auto *yesBtn = msgBox.addButton(QString::fromUtf8("Cập nhật ngay"),
+                                  QMessageBox::AcceptRole);
+  msgBox.addButton(QString::fromUtf8("Bỏ qua"), QMessageBox::RejectRole);
+  msgBox.exec();
 
-    if (msgBox.clickedButton() == yesBtn) {
-        // User chose "Cập nhật ngay"
-        updateBtn_->setEnabled(false);
-        updateBtn_->setText(QString::fromUtf8("Đang tải..."));
-        statusLabel_->setText(QString::fromUtf8("Đang tải bản cập nhật..."));
-        statusLabel_->setStyleSheet("font-size: 12px; color: #666;");
-        statusLabel_->show();
-        progressBar_->setValue(0);
-        progressBar_->show();
+  if (msgBox.clickedButton() == yesBtn) {
+    // User chose "Cập nhật ngay"
+    updateBtn_->setEnabled(false);
+    updateBtn_->setText(QString::fromUtf8("Đang tải..."));
+    statusLabel_->setText(QString::fromUtf8("Đang tải bản cập nhật..."));
+    statusLabel_->setStyleSheet("font-size: 12px; color: #666;");
+    statusLabel_->show();
+    progressBar_->setValue(0);
+    progressBar_->show();
 
-        updater_->downloadAndInstall(downloadUrl, newVersion);
-    }
+    updater_->downloadAndInstall(downloadUrl, newVersion);
+  }
 }
 
 void InfoTab::onNoUpdate() {
-    updateBtn_->setEnabled(true);
-    updateBtn_->setText(QString::fromUtf8("Kiểm tra cập nhật"));
-    statusLabel_->setText(
-        QString::fromUtf8("✓ Bạn đang dùng phiên bản mới nhất."));
-    statusLabel_->setStyleSheet("font-size: 12px; color: green;");
-    statusLabel_->show();
+  updateBtn_->setEnabled(true);
+  updateBtn_->setText(QString::fromUtf8("Kiểm tra cập nhật"));
+  statusLabel_->setText(
+      QString::fromUtf8("✓ Bạn đang dùng phiên bản mới nhất."));
+  statusLabel_->setStyleSheet("font-size: 12px; color: green;");
+  statusLabel_->show();
 }
 
 void InfoTab::onCheckFailed(const QString &errorMessage) {
-    updateBtn_->setEnabled(true);
-    updateBtn_->setText(QString::fromUtf8("Kiểm tra cập nhật"));
-    statusLabel_->setText(
-        QString::fromUtf8("✗ Lỗi kiểm tra: %1").arg(errorMessage));
-    statusLabel_->setStyleSheet("font-size: 12px; color: red;");
-    statusLabel_->show();
+  updateBtn_->setEnabled(true);
+  updateBtn_->setText(QString::fromUtf8("Kiểm tra cập nhật"));
+  statusLabel_->setText(
+      QString::fromUtf8("✗ Lỗi kiểm tra: %1").arg(errorMessage));
+  statusLabel_->setStyleSheet("font-size: 12px; color: red;");
+  statusLabel_->show();
 }
 
 // ── Updater: download slots ─────────────────────────────────────────────
 
 void InfoTab::onDownloadProgress(int percent) {
-    progressBar_->setValue(percent);
-    statusLabel_->setText(
-        QString::fromUtf8("Đang tải... %1%").arg(percent));
+  progressBar_->setValue(percent);
+  statusLabel_->setText(QString::fromUtf8("Đang tải... %1%").arg(percent));
 }
 
 void InfoTab::onDownloadFinished(const QString & /*debPath*/) {
-    progressBar_->setValue(100);
-    statusLabel_->setText(QString::fromUtf8("Tải xong. Đang cài đặt..."));
+  progressBar_->setValue(100);
+  statusLabel_->setText(QString::fromUtf8("Tải xong. Đang cài đặt..."));
 }
 
 void InfoTab::onDownloadFailed(const QString &errorMessage) {
-    updateBtn_->setEnabled(true);
-    updateBtn_->setText(QString::fromUtf8("Kiểm tra cập nhật"));
-    progressBar_->hide();
-    statusLabel_->setText(
-        QString::fromUtf8("✗ Lỗi tải: %1").arg(errorMessage));
-    statusLabel_->setStyleSheet("font-size: 12px; color: red;");
-    statusLabel_->show();
+  updateBtn_->setEnabled(true);
+  updateBtn_->setText(QString::fromUtf8("Kiểm tra cập nhật"));
+  progressBar_->hide();
+  statusLabel_->setText(QString::fromUtf8("✗ Lỗi tải: %1").arg(errorMessage));
+  statusLabel_->setStyleSheet("font-size: 12px; color: red;");
+  statusLabel_->show();
 }
 
 // ── Updater: install slots ──────────────────────────────────────────────
 
 void InfoTab::onInstallStarted() {
-    statusLabel_->setText(
-        QString::fromUtf8("Đang cài đặt... (cần quyền root)"));
-    progressBar_->setRange(0, 0); // indeterminate
+  statusLabel_->setText(QString::fromUtf8("Đang cài đặt... (cần quyền root)"));
+  progressBar_->setRange(0, 0); // indeterminate
 }
 
 void InfoTab::onInstallFinished(bool success, const QString &message) {
-    updateBtn_->setEnabled(true);
-    updateBtn_->setText(QString::fromUtf8("Kiểm tra cập nhật"));
-    progressBar_->setRange(0, 100);
-    progressBar_->hide();
+  updateBtn_->setEnabled(true);
+  updateBtn_->setText(QString::fromUtf8("Kiểm tra cập nhật"));
+  progressBar_->setRange(0, 100);
+  progressBar_->hide();
 
-    if (success) {
-        statusLabel_->setText(QString::fromUtf8("✓ %1").arg(message));
-        statusLabel_->setStyleSheet("font-size: 12px; color: green;");
-        versionLabel_->setText(
-            QString::fromUtf8("Phiên bản: %1").arg(pendingVersion_));
+  if (success) {
+    statusLabel_->setText(QString::fromUtf8("✓ %1").arg(message));
+    statusLabel_->setStyleSheet("font-size: 12px; color: green;");
+    versionLabel_->setText(
+        QString::fromUtf8("Phiên bản: %1").arg(pendingVersion_));
 
-        // Close and reopen the settings GUI so the user is running
-        // the freshly-installed version.  Brief delay lets the user
-        // see the success message before the window closes.
-        QTimer::singleShot(1500, this, [this]() {
-            QWidget *win = window();
-            QProcess::startDetached(
-                QApplication::applicationFilePath(), {});
-            if (win) win->close();
-        });
-    } else {
-        statusLabel_->setText(QString::fromUtf8("✗ %1").arg(message));
-        statusLabel_->setStyleSheet("font-size: 12px; color: red;");
-    }
-    statusLabel_->show();
+    // Close and reopen the settings GUI so the user is running
+    // the freshly-installed version.  Brief delay lets the user
+    // see the success message before the window closes.
+    QTimer::singleShot(1500, this, [this]() {
+      QWidget *win = window();
+      QProcess::startDetached(QApplication::applicationFilePath(), {});
+      if (win)
+        win->close();
+    });
+  } else {
+    statusLabel_->setText(QString::fromUtf8("✗ %1").arg(message));
+    statusLabel_->setStyleSheet("font-size: 12px; color: red;");
+  }
+  statusLabel_->show();
 }
