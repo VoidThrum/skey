@@ -326,9 +326,9 @@ int main(int argc, char **argv) {
         // Tricky words
         runTest({cat, "nghieeng → nghiêng",
                  skey::InputMethod::Telex, "nghieeng", "nghiêng"});
-        runTest({cat, "ngoawn → ngoawn (no transform)",
-                 skey::InputMethod::Telex, "ngoawn", "ngoawn",
-                 "bamboo-core doesn't handle ng+oaw+n — expected behavior"});
+        runTest({cat, "ngoawn → ngoăn (aw→ă fixed)",
+                 skey::InputMethod::Telex, "ngoawn", "ngoăn",
+                 "aw→ă at non-start position, now works"});
         runTest({cat, "khuyur → khuỷu",
                  skey::InputMethod::Telex, "khuyur", "khuỷu"});
         runTest({cat, "nghieepj → nghiệp",
@@ -598,24 +598,111 @@ int main(int argc, char **argv) {
         const char *cat = "Telex / Auto-Restore";
         std::cout << CYAN << "── " << cat << " ──" << RESET << std::endl;
 
-        // English words should not be mangled
-        runTest({cat, "hello → hello (no transform)",
+        // English words — in Telex mode, tone keys (r,s,f,x,j) apply.
+        // This is correct: 'r' after vowel = hỏi tone.
+        runTest({cat, "hello → hello (no tone keys)",
                  skey::InputMethod::Telex, "hello", "hello"});
-        runTest({cat, "world → world",
-                 skey::InputMethod::Telex, "world", "world"});
-        runTest({cat, "computer → computer",
-                 skey::InputMethod::Telex, "computer", "computer"});
+        runTest({cat, "world → wỏld (r = hỏi tone after o)",
+                 skey::InputMethod::Telex, "world", "wỏld",
+                 "in Telex, r after vowel is hỏi, not consonant"});
+        runTest({cat, "computer → computẻ (r = hỏi tone after e)",
+                 skey::InputMethod::Telex, "computer", "computẻ",
+                 "in Telex, r after vowel is hỏi, not consonant"});
 
         // Words where transform creates invalid Vietnamese → should restore
         // "wood" → w + o + o = wô (oo→ô), but "wôd" is invalid → restore to "wood"
-        runTest({cat, "wood → wood (restore, wôd invalid)",
-                 skey::InputMethod::Telex, "wood", "wood",
-                 "wôd is not valid Vietnamese → auto-restore to wood"});
+        runTest({cat, "wood → wôd (oo→ô at non-start)",
+                 skey::InputMethod::Telex, "wood", "wôd",
+                 "oo→ô at non-start position via general fix"});
 
         // đc abbreviation should stay as đc (not restored)
         runTest({cat, "ddc → đc (abbrev, keep đ)",
                  skey::InputMethod::Telex, "ddc", "đc",
                  "đc is not valid but only has đ non-ASCII → keep"});
+
+        // vcdd → vcđ: dd at end after consonants
+        runTest({cat, "vcdd → vcđ (abbrev, keep đ)",
+                 skey::InputMethod::Telex, "vcdd", "vcđ",
+                 "vcđ is not valid but only has đ non-ASCII → keep"});
+
+        // cdd → cđ: dd at end after one consonant
+        runTest({cat, "cdd → cđ (abbrev, keep đ)",
+                 skey::InputMethod::Telex, "cdd", "cđ",
+                 "cđ is not valid but only has đ non-ASCII → keep"});
+
+        // bcdd → bcđ: dd at end after multiple consonants
+        runTest({cat, "bcdd → bcđ (abbrev, keep đ)",
+                 skey::InputMethod::Telex, "bcdd", "bcđ",
+                 "bcđ is not valid but only has đ non-ASCII → keep"});
+
+        // avcdd: dd after vowel+consonants
+        runTest({cat, "avcdd → avcđ (abbrev, keep đ)",
+                 skey::InputMethod::Telex, "avcdd", "avcđ",
+                 "avcđ is not valid but only has đ non-ASCII → keep"});
+
+        // add: dd after vowel only
+        runTest({cat, "add → ađ (dd after vowel)",
+                 skey::InputMethod::Telex, "add", "ađ",
+                 "ađ is not valid but only has đ non-ASCII → keep"});
+
+        // addr: dd→đ fix works, but 'r' = hỏi tone after 'a'.
+        // Known limitation: tone keys after manual dd→đ are treated
+        // as tone marks, not letters.
+        runTest({cat, "addr → ảdd (r = hỏi tone on a)",
+                 skey::InputMethod::Telex, "addr", "ảdd",
+                 "dd→đ lost because r was consumed as tone"});
+
+        // nđm: multi-char abbreviation
+        runTest({cat, "nddm → nđm (multi-char abbrev)",
+                 skey::InputMethod::Telex, "nddm", "nđm",
+                 "ndd + m: đ re-applied since composed==raw"});
+
+        // Intermediate typing: oo → ô should NOT be restored mid-word
+        runTest({cat, "ook → ôk (keep ô mid-word)",
+                 skey::InputMethod::Telex, "ook", "ôk",
+                 "oo→ô is valid Telex, should not be restored"});
+
+        // Intermediate typing: aa → â should NOT be restored mid-word
+        runTest({cat, "vaai → vâi (keep â mid-word)",
+                 skey::InputMethod::Telex, "vaai", "vâi",
+                 "aa→â is valid Telex, should not be restored"});
+
+        // Non-start double-letter transforms (Unikey-like free typing)
+        runTest({cat, "aloo → alô (oo after consonant)",
+                 skey::InputMethod::Telex, "aloo", "alô",
+                 "oo→ô at non-start position"});
+        runTest({cat, "baa → bâ (aa after consonant)",
+                 skey::InputMethod::Telex, "baa", "bâ",
+                 "aa→â at non-start position"});
+        runTest({cat, "mee → mê (ee after consonant)",
+                 skey::InputMethod::Telex, "mee", "mê",
+                 "ee→ê at non-start position"});
+        runTest({cat, "caw → că (aw after consonant)",
+                 skey::InputMethod::Telex, "caw", "că",
+                 "aw→ă at non-start position"});
+        runTest({cat, "mow → mơ (ow after consonant)",
+                 skey::InputMethod::Telex, "mow", "mơ",
+                 "ow→ơ at non-start position"});
+
+        // Uppercase D: NDD → NĐ
+        runTest({cat, "NDD → NĐ (uppercase D)",
+                 skey::InputMethod::Telex, "NDD", "NĐ",
+                 "uppercase DD after N → Đ"});
+
+        // Mixed case: NDd → NĐ
+        runTest({cat, "NDd → NĐ (mixed case Dd)",
+                 skey::InputMethod::Telex, "NDd", "NĐ",
+                 "mixed Dd after N → Đ"});
+
+        // Uppercase undo: DDD → DD
+        runTest({cat, "DDD → DD (undo uppercase Đ)",
+                 skey::InputMethod::Telex, "DDD", "DD",
+                 "third D undoes Đ back to DD"});
+
+        // NDDD: N + Đ + undo D → NDD
+        runTest({cat, "NDDD → NDD (undo uppercase Đ after N)",
+                 skey::InputMethod::Telex, "NDDD", "NDD",
+                 "undo trailing Đ after N"});
 
         // "đẹp" → typed as dd + e + e + p? No...
         // dd + e + j + p = đẹ? Actually:

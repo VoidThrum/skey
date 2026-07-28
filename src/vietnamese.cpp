@@ -163,25 +163,98 @@ ProcessResult VietnameseEngine::processKey(char ch) {
             if (c > 127) { newIsAllAscii = false; break; }
         }
         if (newIsAllAscii) {
-            if (composed_.size() < rawInput_.size()) {
-                // Trigger consumed by bamboo — commit all
-                committed_ += composed_;
-            } else if (composed_.size() > 0) {
-                // Trigger still present at end — strip it
-                committed_ += composed_.substr(0, composed_.size() - 1);
+            // Only treat as undo when the new key repeats the last raw
+            // input character (e.g., "dd"→"đ" undone by third 'd').
+            // Otherwise a manual dd→đ abbreviation followed by a
+            // different letter (e.g., "ađ" + 'r') looks like an undo
+            // but isn't one — composed_ is all-ASCII only because
+            // bamboo never produced the đ in the first place.
+            bool isRepeatKey = !oldRawInput.empty() && ch == oldRawInput.back();
+            if (isRepeatKey) {
+                if (composed_.size() < rawInput_.size()) {
+                    // Trigger consumed by bamboo — commit all
+                    committed_ += composed_;
+                } else if (composed_.size() > 0) {
+                    // Trigger still present at end — strip it
+                    committed_ += composed_.substr(0, composed_.size() - 1);
+                }
+
+                // Clear composition entirely — undo key consumed
+                rawInput_.clear();
+                composed_.clear();
+                skey_engine_reset(handle_);
+
+                // Enter English bypass mode: subsequent keys in this word
+                // will be forwarded as raw ASCII without Vietnamese processing.
+                englishBypass_ = true;
+
+                return ProcessResult::Committed;
             }
-
-            // Clear composition entirely — undo key consumed
-            rawInput_.clear();
-            composed_.clear();
-            skey_engine_reset(handle_);
-
-            // Enter English bypass mode: subsequent keys in this word
-            // will be forwarded as raw ASCII without Vietnamese processing.
-            englishBypass_ = true;
-
-            return ProcessResult::Committed;
+            // Not a repeat key: keep composed_ as-is.
+            // The all-ASCII result is because bamboo didn't transform
+            // "dd"→"đ" earlier, not because an undo happened.
         }
+    }
+
+    // Bamboo-core only transforms double-letter Telex patterns
+    // (dd→đ, oo→ô, aa→â, etc.) at syllable start (position 0).
+    // For all other positions, bamboo leaves the pair as-is.
+    // Replace every untransformed pair with the correct Vietnamese
+    // character whenever bamboo produced no Vietnamese chars at all
+    // (composed_ == rawInput_).  This gives Unikey-like free typing.
+    //
+    // Undo patterns (ddd, ooo, etc.) are NOT handled here — when
+    // composed_ ≠ rawInput_ (bamboo consumed a char for undo), we
+    // skip this entire block.
+    if (composed_ == rawInput_ && composed_.size() >= 2) {
+        // Telex two-letter transforms: pair → UTF-8 result.
+        // Only applied when composed_ == rawInput_ (bamboo produced
+        // no Vietnamese chars at all, so these pairs were NOT
+        // transformed at non-start positions).
+        struct {
+            char c0;       // first char (lowercase)
+            char c1;       // second char (lowercase)
+            const char *lo; // UTF-8 lowercase result
+            const char *up; // UTF-8 uppercase result
+        } static const kPairs[] = {
+            {'d','d', "\xC4\x91","\xC4\x90"}, // đ/Đ
+            {'o','o', "\xC3\xB4","\xC3\x94"}, // ô/Ô
+            {'a','a', "\xC3\xA2","\xC3\x82"}, // â/Â
+            {'e','e', "\xC3\xAA","\xC3\x8A"}, // ê/Ê
+            {'w','w', "\xC6\xB0","\xC6\xAF"}, // ư/Ư
+            {'a','w', "\xC4\x83","\xC4\x82"}, // ă/Ă
+            {'o','w', "\xC6\xA1","\xC6\xA0"}, // ơ/Ơ
+            {'u','w', "\xC6\xB0","\xC6\xAF"}, // ư/Ư
+        };
+        std::string fixed;
+        for (size_t i = 0; i < composed_.size(); ) {
+            bool replaced = false;
+            if (i + 1 < composed_.size()) {
+                char a = composed_[i];
+                char b = composed_[i+1];
+                // ToLower: 'A'-'Z' → 'a'-'z'
+                auto toLower = [](char c) -> char {
+                    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+                };
+                char al = toLower(a);
+                char bl = toLower(b);
+                bool firstUpper = (a >= 'A' && a <= 'Z');
+
+                for (auto &p : kPairs) {
+                    if (al == p.c0 && bl == p.c1) {
+                        fixed += firstUpper ? p.up : p.lo;
+                        i += 2;
+                        replaced = true;
+                        break;
+                    }
+                }
+            }
+            if (!replaced) {
+                fixed += composed_[i];
+                i++;
+            }
+        }
+        composed_ = fixed;
     }
 
     return ProcessResult::Consumed;
@@ -241,59 +314,26 @@ void VietnameseEngine::recompose() {
         composed_ = rawInput_;
     }
 
-    // Real-time auto-restore (à la Lotus autoNonVnRestore + ddFreeStyle).
-    // If composed differs from raw AND is not valid Vietnamese:
-    //   - If it contains Vietnamese vowels/tone marks → restore to raw
-    //   - If it only contains đ/Đ (no vowels) → keep (abbreviations like đc)
+    // Real-time auto-restore: only when bamboo produced a shorter or
+    // different all-ASCII result — this happens when Telex modifier keys
+    // (like "ss") destructively rewrite an English word.
+    // E.g. "address" → bamboo yields "addres" (ss = undo tone).
+    //
+    // We intentionally do NOT restore composed_ that contains Vietnamese
+    // characters (ô, â, ê, đ, ...) mid-word — those are valid Telex
+    // transforms that the user intentionally typed.  Vietnamese vowels
+    // and diacritics resulting from transforms like oo→ô, aa→â, dd→đ
+    // should persist during typing, not be second-guessed.
     if (autoRestore_ &&
         composed_ != rawInput_ && !rawInput_.empty() &&
         skey_engine_is_valid(handle_) == 0) {
 
-        // Check if composed has any non-ASCII char that isn't đ (U+0111) / Đ (U+0110).
-        // đ = UTF-8 C4 91, Đ = UTF-8 C4 90.
-        // Any other non-ASCII = Vietnamese vowel/tone mark → should restore.
-        bool hasVietnameseVowel = false;
-        for (size_t i = 0; i < composed_.size(); ) {
-            unsigned char c = composed_[i];
-            if (c <= 127) { i++; continue; }
-
-            // Determine UTF-8 sequence length
-            int len = 1;
-            if ((c & 0xE0) == 0xC0) len = 2;
-            else if ((c & 0xF0) == 0xE0) len = 3;
-            else if ((c & 0xF8) == 0xF0) len = 4;
-
-            // Check for đ (C4 91) or Đ (C4 90)
-            if (len == 2 && i + 1 < composed_.size() &&
-                composed_[i] == '\xC4' &&
-                (composed_[i + 1] == '\x91' || composed_[i + 1] == '\x90')) {
-                i += len;
-                continue;  // It's đ/Đ — skip
-            }
-
-            // Any other non-ASCII char = Vietnamese vowel/tone
-            hasVietnameseVowel = true;
-            break;
+        bool composedAllAscii = true;
+        for (unsigned char c : composed_) {
+            if (c > 127) { composedAllAscii = false; break; }
         }
-
-        if (hasVietnameseVowel) {
+        if (composedAllAscii) {
             composed_ = rawInput_;
-        }
-        // else: only đ/Đ present (ddFreeStyle) → keep composed_
-
-        // Also restore when bamboo produced a shorter or different
-        // all-ASCII result — this happens when Telex modifier keys
-        // (like "ss") destructively rewrite an English word.
-        // E.g. "address" → bamboo yields "addes" (ss = undo tone).
-        if (!hasVietnameseVowel && composed_ != rawInput_) {
-            // Check if composed_ is all ASCII
-            bool composedAllAscii = true;
-            for (unsigned char c : composed_) {
-                if (c > 127) { composedAllAscii = false; break; }
-            }
-            if (composedAllAscii) {
-                composed_ = rawInput_;
-            }
         }
     }
 }
