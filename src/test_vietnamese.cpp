@@ -28,21 +28,6 @@ static const char *RED   = "\033[31m";
 static const char *CYAN  = "\033[36m";
 static const char *RESET = "\033[0m";
 
-// ── Helper: escape non-ASCII for readable output ─────────────────────────
-
-static std::string escape(const std::string &s) {
-    std::string out;
-    for (unsigned char c : s) {
-        if (c >= 32 && c < 127)
-            out += c;
-        else {
-            char buf[8];
-            snprintf(buf, sizeof(buf), "\\x%02X", c);
-            out += buf;
-        }
-    }
-    return out;
-}
 
 // ── Test runner ──────────────────────────────────────────────────────────
 
@@ -52,7 +37,7 @@ struct TestCase {
     skey::InputMethod method;
     const char *keys;
     const char *expectedText; // final composed text visible (after all commits)
-    const char *note;         // optional explanation, nullptr if none
+    const char *note = nullptr; // optional explanation, nullptr if none
     bool shortW = false;      // Telex: bare 'w' → 'ư'
     bool bracketUO = false;   // Telex: '[' → 'ơ', ']' → 'ư'
 };
@@ -64,7 +49,7 @@ struct BackspaceTest {
     const char *keys;          // type these keys
     int backspaceCount;        // then press BS this many times
     const char *expectedText;  // expected composed after backspaces
-    const char *note;          // optional explanation
+    const char *note = nullptr; // optional explanation
 };
 
 static int gPassed = 0;
@@ -1016,9 +1001,8 @@ int main(int argc, char **argv) {
         {
             skey::VietnameseEngine eng;
             eng.setMethod(skey::InputMethod::Telex);
-            auto r = eng.processKey('s');  // tone 's' with no vowel
+            eng.processKey('s');  // tone 's' with no vowel
             // s is a letter, so not ignored. raw="s", composed="s"
-            // Actually 's' is a letter (between a-z), so it's processed
             bool pass = (eng.getComposed() == "s");
             if (pass) { ++gPassed; std::cout << GREEN << "  PASS" << RESET << "  tone key 's' alone = 's'\n"; }
             else      { ++gFailed; std::cout << RED   << "  FAIL" << RESET << "  tone key 's' alone: got '" << eng.getComposed() << "'\n"; }

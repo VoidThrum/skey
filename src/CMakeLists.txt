@@ -1,3 +1,8 @@
+# These targets are pure C++ (no Qt).  KDECompilerSettings enables
+# AUTOMOC globally; turn it off here to suppress dev warnings.
+set(CMAKE_AUTOMOC OFF)
+set(CMAKE_AUTORCC OFF)
+
 set(SKEY_SOURCES
     engine.cpp
     vietnamese.cpp

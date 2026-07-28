@@ -8,13 +8,15 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # needed for GitHub Release + pushing to gh-pages
-  pages: write     # needed for GitHub Pages deployment
-  id-token: write  # needed for OIDC token in Pages deployment
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    # Ubuntu 20.04 = glibc 2.31 — forward-compatible with all newer distros.
+    # Qt6 is not in focal's standard repos, so we install it via aqtinstall.
+    runs-on: ubuntu-20.04
 
     steps:
       - name: Checkout repository
@@ -23,7 +25,15 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake extra-cmake-modules libfcitx5core-dev fcitx5 pkg-config gettext dpkg-dev apt-utils librsvg2-bin qt6-base-dev libdbus-1-dev
+          sudo apt-get install -y cmake extra-cmake-modules libfcitx5core-dev \
+            fcitx5 pkg-config gettext dpkg-dev apt-utils librsvg2-bin libdbus-1-dev \
+            libgl1-mesa-dev libxkbcommon-dev libfontconfig1-dev
+
+      - name: Install Qt6 (via aqtinstall)
+        run: |
+          pip3 install aqtinstall
+          aqt install-qt linux desktop 6.2.4 gcc_64 --outputdir /opt/qt6
+          echo "CMAKE_PREFIX_PATH=/opt/qt6/6.2.4/gcc_64" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         run: |
@@ -53,7 +63,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APT_GPG_KEY_EMAIL: ${{ secrets.APT_GPG_KEY_EMAIL }}
         run: |
-          # Import GPG private key from secret
           echo "${{ secrets.APT_GPG_PRIVATE_KEY }}" | gpg --import --batch
-          # Publish to gh-pages APT repo
           scripts/apt-repo/update-repo.sh ./*.deb
