@@ -134,6 +134,12 @@ private:
     // extra BS that deletes text before the cursor.
     bool addrBarHadSpace_ = false;
     std::unique_ptr<EventSourceTime> addrBarCycleTimer_;
+    // CLOCK_MONOTONIC timestamp of the most recent deactivate().
+    // Used in activate() to detect spurious focus cycles that arrive
+    // when addrBarExpectCycle_ was not armed — if reactivation happens
+    // within 500ms in the same address bar, we preserve first-word/space
+    // tracking to prevent fullReplace from deleting text before cursor.
+    uint64_t lastDeactivateTime_ = 0;
     std::string pendingUinputCommit_;
     std::vector<KeySym> bufferedUinputKeys_;
     uint64_t bsSentAt_ = 0;        // timestamp when BS was sent

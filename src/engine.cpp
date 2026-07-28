@@ -904,9 +904,26 @@ void SKeyState::activate() {
   } else {
     viet_.reset();
     committedLen_ = 0;
-    addrBarIsFirstWord_ = true;
-    addrBarHadSpace_ = false;
     surroundingTextFailed_ = false;  // fresh focus, re-verify
+
+    // Detect spurious focus cycles that arrived when addrBarExpectCycle_
+    // was not armed (e.g. asynchronous omnibox updates).  If reactivation
+    // happens within 500ms of deactivate in the same Chromium address bar,
+    // preserve first-word/space tracking — otherwise the next replacement
+    // gets fullReplace treatment and deletes text before the cursor.
+    bool spuriousCycle =
+        inChromiumAddressBar() &&
+        lastDeactivateTime_ > 0 &&
+        (now(CLOCK_MONOTONIC) - lastDeactivateTime_) < 500000;
+
+    if (!spuriousCycle) {
+      addrBarIsFirstWord_ = true;
+      addrBarHadSpace_ = false;
+    } else {
+      SKEY_DEBUG() << "Activate: spurious cycle (unarmed), preserving"
+                   << " firstWord=" << addrBarIsFirstWord_
+                   << " hadSpace=" << addrBarHadSpace_;
+    }
   }
   clearLastWord();
   modeMenuActive_ = false;
@@ -1077,6 +1094,14 @@ bool SKeyState::handlePendingUinputBackspace(KeyEvent &keyEvent) {
 
   // Count BS events.  ALL of them pass through to the app (no sentinel).
   ++seenUinputBackspaces_;
+  // Keep local tracking in sync: each BS (uinput or user-typed) that
+  // passes through during the deletion window deletes one character from
+  // the screen.  If we don't update committedLen_ here, subsequent
+  // replacements will compute deleteLen from a stale oldComposed, causing
+  // old deleted characters to reappear or extra chars to be deleted.
+  if (committedLen_ > 0) {
+    committedLen_--;
+  }
   SKEY_DEBUG() << "Uinput: pass BS " << seenUinputBackspaces_ << "/"
                << expectedUinputBackspaces_;
 
@@ -1237,6 +1262,7 @@ void SKeyState::deactivate() {
                << " pendingBs=" << expectedUinputBackspaces_
                << " seenBs=" << seenUinputBackspaces_ << " pendingCommit='"
                << pendingUinputCommit_ << "'";
+  lastDeactivateTime_ = now(CLOCK_MONOTONIC);
   forceFlushDeferredCommit();
 
   // Chrome address bar (and other apps) can trigger focus changes during

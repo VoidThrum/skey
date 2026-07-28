@@ -330,6 +330,22 @@ else
     echo "ℹ fcitx5 is not running. Start it with: fcitx5 -d"
 fi
 
+# ── Uinput server (systemd service) ──
+# The uinput server injects BackSpace/Unicode keystrokes via /dev/uinput.
+# It must be running for Uinput and Address Bar output modes.
+# We enable + restart the per-user service so it survives reboots and is
+# running the freshly-installed binary.
+if command -v systemctl >/dev/null 2>&1; then
+    UINPUT_SERVICE="fcitx5-skey-uinput-server@${USER}.service"
+    if systemctl --user is-enabled "$UINPUT_SERVICE" >/dev/null 2>&1; then
+        systemctl --user restart "$UINPUT_SERVICE" 2>/dev/null || true
+        echo "✓ Uinput server restarted: $UINPUT_SERVICE"
+    else
+        systemctl --user enable --now "$UINPUT_SERVICE" 2>/dev/null || true
+        echo "✓ Uinput server enabled + started: $UINPUT_SERVICE"
+    fi
+fi
+
 echo ""
 echo "Done! skey is now the default Vietnamese input method."
 echo "Toggle with Ctrl+Space. Settings: fcitx5-configtool"

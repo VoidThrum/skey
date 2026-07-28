@@ -9,6 +9,8 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QProcess>
+#include <QTimer>
+#include <QProcess>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QUrl>
@@ -317,8 +319,17 @@ void InfoTab::onInstallFinished(bool success, const QString &message) {
         statusLabel_->setText(QString::fromUtf8("✓ %1").arg(message));
         statusLabel_->setStyleSheet("font-size: 12px; color: green;");
         versionLabel_->setText(
-            QString::fromUtf8("Phiên bản: %1 (cần khởi động lại)")
-                .arg(pendingVersion_));
+            QString::fromUtf8("Phiên bản: %1").arg(pendingVersion_));
+
+        // Close and reopen the settings GUI so the user is running
+        // the freshly-installed version.  Brief delay lets the user
+        // see the success message before the window closes.
+        QTimer::singleShot(1500, this, [this]() {
+            QWidget *win = window();
+            QProcess::startDetached(
+                QApplication::applicationFilePath(), {});
+            if (win) win->close();
+        });
     } else {
         statusLabel_->setText(QString::fromUtf8("✗ %1").arg(message));
         statusLabel_->setStyleSheet("font-size: 12px; color: red;");
