@@ -421,6 +421,7 @@ public:
   void select(InputContext *) const override {
     state_->appModeOverride_ = mode_;
     state_->hasAppModeOverride_ = true;
+    state_->modeCacheValid_ = false;
     engine_->saveAppMode(state_->ic_->program(), mode_);
     SKEY_INFO() << "Mode switched to " << outputModeName(mode_);
     state_->dismissModeMenu();
@@ -442,6 +443,7 @@ public:
 
   void select(InputContext *) const override {
     engine_->setChromiumAddressBarMode(mode_);
+    state_->modeCacheValid_ = false;
     SKEY_INFO() << "Address bar mode switched";
     state_->dismissModeMenu();
   }
@@ -1586,33 +1588,35 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       choice = 3;
     else if (sym == FcitxKey_4 || sym == FcitxKey_KP_4)
       choice = 4;
+    else if (sym == FcitxKey_5 || sym == FcitxKey_KP_5)
+      choice = 5;
 
     if (modeMenuForAddressBar_) {
       SKeyChromiumAddressBarMode newMode;
       switch (choice) {
       case 1:
-        newMode = SKeyChromiumAddressBarMode::Uinput;
+        newMode = SKeyChromiumAddressBarMode::Auto;
         break;
       case 2:
-        newMode = SKeyChromiumAddressBarMode::SurroundingText;
+        newMode = SKeyChromiumAddressBarMode::Uinput;
         break;
       case 3:
-        newMode = SKeyChromiumAddressBarMode::Preedit;
+        newMode = SKeyChromiumAddressBarMode::SurroundingText;
         break;
       case 4:
+        newMode = SKeyChromiumAddressBarMode::Preedit;
+        break;
+      case 5:
         newMode = SKeyChromiumAddressBarMode::NoVietnamese;
         break;
       default:
-        newMode = SKeyChromiumAddressBarMode::Preedit;
-        break;
+        return; // unrecognized — dismiss below
       }
-      if (choice > 0) {
-        engine_->setChromiumAddressBarMode(newMode);
-        SKEY_INFO() << "Address bar mode switched";
-        dismissModeMenu();
-        keyEvent.filterAndAccept();
-        return;
-      }
+      engine_->setChromiumAddressBarMode(newMode);
+      SKEY_INFO() << "Address bar mode switched";
+      dismissModeMenu();
+      keyEvent.filterAndAccept();
+      return;
     } else if (choice > 0 && choice <= 4) {
       SKeyOutputMode newMode;
       switch (choice) {
@@ -1635,12 +1639,13 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       engine_->saveAppExcluded(ic_->program(), false);
       appModeOverride_ = newMode;
       hasAppModeOverride_ = true;
+      modeCacheValid_ = false;
       engine_->saveAppMode(ic_->program(), newMode);
       SKEY_INFO() << "Mode switched to " << outputModeName(newMode);
       dismissModeMenu();
       keyEvent.filterAndAccept();
       return;
-    } else if (choice == 4) {
+    } else if (choice == 5) {
       bool newExcluded = !appExcluded_;
       appExcluded_ = newExcluded;
       engine_->saveAppExcluded(ic_->program(), newExcluded);
