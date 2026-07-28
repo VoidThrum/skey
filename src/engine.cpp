@@ -21,6 +21,7 @@
 #include <fstream>
 #include <pwd.h>
 #include <sstream>
+#include <dirent.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -261,11 +262,128 @@ static bool isChromiumBrowser(const std::string &prog) {
 // EXCEPT inChromiumAddressBar(), which must use the narrower
 // isChromiumBrowser() to avoid false positives.
 static bool isChromiumBasedApp(const std::string &prog) {
+  if (prog.empty()) return false;
   if (isChromiumBrowser(prog)) return true;
-  static const char *const electronPatterns[] = {"electron", "tabby"};
-  for (const char *p : electronPatterns) {
-    if (prog.find(p) != std::string::npos) return true;
+  if (prog.find("electron") != std::string::npos) return true;
+
+  // Scan /proc for processes matching prog, then check whether the
+  // binary or any ancestor links to electron/chrome/chromium.  This
+  // catches renamed Electron shells (antigravity-ide, Tabby, etc.)
+  // without hardcoding app names.
+  DIR *dir = opendir("/proc");
+  if (!dir) return false;
+
+  struct dirent *entry;
+  while ((entry = readdir(dir)) != nullptr) {
+    if (entry->d_type != DT_DIR) continue;
+    if (!isdigit(entry->d_name[0])) continue;
+
+    std::string pidStr = entry->d_name;
+
+    // Read comm — truncated to 15 chars by the kernel, so compare
+    // against the first 15 chars of prog as well.
+    std::string commPath = "/proc/" + pidStr + "/comm";
+    std::ifstream commFile(commPath);
+    if (!commFile.is_open()) continue;
+    std::string comm;
+    std::getline(commFile, comm);
+    if (!comm.empty() && comm.back() == '\n') comm.pop_back();
+
+    if (comm != prog && prog.compare(0, 15, comm) != 0 &&
+        comm.compare(0, 15, prog) != 0) {
+      // Also try cmdline (first arg = binary path, may contain prog)
+      std::string cmdPath = "/proc/" + pidStr + "/cmdline";
+      std::ifstream cmdFile(cmdPath);
+      if (cmdFile.is_open()) {
+        std::string cmdline;
+        std::getline(cmdFile, cmdline, '\0');
+        // Extract basename
+        size_t slash = cmdline.rfind('/');
+        std::string basename = (slash != std::string::npos)
+                                   ? cmdline.substr(slash + 1)
+                                   : cmdline;
+        if (basename != prog && basename.find(prog) == std::string::npos &&
+            prog.find(basename) == std::string::npos)
+          continue;
+      } else {
+        continue;
+      }
+    }
+
+    // Found matching process — check ancestry for Chromium markers
+    int ppid = 0;
+    for (int depth = 0; depth < 10; depth++) {
+      std::string checkPid = (depth == 0)
+                                 ? pidStr
+                                 : std::to_string(ppid);
+
+      // Check exe symlink
+      char exeBuf[PATH_MAX];
+      std::string exePath = "/proc/" + checkPid + "/exe";
+      ssize_t len =
+          readlink(exePath.c_str(), exeBuf, sizeof(exeBuf) - 1);
+      if (len > 0) {
+        exeBuf[len] = '\0';
+        std::string exe(exeBuf);
+        std::string lower = exe;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       ::tolower);
+        if (lower.find("electron") != std::string::npos ||
+            lower.find("chrome") != std::string::npos ||
+            lower.find("chromium") != std::string::npos) {
+          closedir(dir);
+          return true;
+        }
+
+        // chrome-sandbox in the same directory = Electron app
+        size_t lastSlash = exe.rfind('/');
+        if (lastSlash != std::string::npos) {
+          std::string exeDir = exe.substr(0, lastSlash);
+          if (access((exeDir + "/chrome-sandbox").c_str(), F_OK) ==
+              0) {
+            closedir(dir);
+            return true;
+          }
+          if (access(
+                  (exeDir + "/chrome_crashpad_handler").c_str(),
+                  F_OK) == 0) {
+            closedir(dir);
+            return true;
+          }
+        }
+      }
+
+      // Walk up to parent
+      if (depth == 0) {
+        std::string statPath = "/proc/" + pidStr + "/stat";
+        std::ifstream statFile(statPath);
+        if (!statFile.is_open()) break;
+        std::string statLine;
+        std::getline(statFile, statLine);
+        size_t rparen = statLine.rfind(')');
+        if (rparen == std::string::npos) break;
+        std::istringstream iss(statLine.substr(rparen + 2));
+        std::string state;
+        iss >> state >> ppid;
+      } else {
+        std::string pstatPath =
+            "/proc/" + std::to_string(ppid) + "/stat";
+        std::ifstream pstatFile(pstatPath);
+        if (!pstatFile.is_open()) break;
+        std::string pstatLine;
+        std::getline(pstatFile, pstatLine);
+        size_t rparen = pstatLine.rfind(')');
+        if (rparen == std::string::npos) break;
+        std::istringstream piss(pstatLine.substr(rparen + 2));
+        std::string state;
+        int newPpid;
+        piss >> state >> newPpid;
+        if (newPpid <= 1 || newPpid == ppid) break;
+        ppid = newPpid;
+      }
+    }
   }
+  closedir(dir);
   return false;
 }
 
@@ -824,28 +942,29 @@ SKeyOutputMode SKeyState::detectAutoMode() const {
     return SKeyOutputMode::Uinput;
   }
 
-  // Electron apps advertise SurroundingText but their implementation is
-  // often broken (missing AbsoluteCursorPos, stale cache, wrong cursor).
-  // SpellCheck is a reliable differentiator: full browsers (Chrome, Edge)
-  // set it, but Electron shells (IDEs, terminals, chat apps) don't.
-  // When SpellCheck is absent on Wayland, fall back to Uinput regardless
-  // of the program name — the binary may not contain "electron".
-  if (!caps.test(CapabilityFlag::SpellCheck) &&
+  // Electron/Chromium apps advertise SurroundingText but their
+  // implementation is often broken (missing AbsoluteCursorPos, stale
+  // cache, wrong cursor).  SpellCheck is a reliable differentiator:
+  // full browsers (Chrome, Edge) set it, but Electron shells don't.
+  // Only demote apps that match known Chromium-based patterns — native
+  // apps (Telegram, Qt/GTK) have a working SurroundingText impl.
+  if (isChromiumBasedApp(ic_->program()) &&
+      !caps.test(CapabilityFlag::SpellCheck) &&
       isWayland() &&
       caps.test(CapabilityFlag::SurroundingText)) {
-    SKEY_DEBUG() << "Auto: no SpellCheck on Wayland → Uinput";
+    SKEY_DEBUG() << "Auto: Electron on Wayland without SpellCheck → Uinput";
     return SKeyOutputMode::Uinput;
   }
 
-  // Electron terminals (Tabby) advertise SurroundingText but the
-  // compositor only sends empty surrounding text.
+  // Same for non-Wayland (X11/XWayland): Electron apps without
+  // SpellCheck have broken SurroundingText (e.g. Tabby).
   if (isChromiumBasedApp(ic_->program()) &&
       !caps.test(CapabilityFlag::SpellCheck)) {
     SKEY_DEBUG() << "Auto: Chromium without SpellCheck → Uinput";
     return SKeyOutputMode::Uinput;
   }
 
-  SKEY_DEBUG() << "Auto: SurroundingText cap + usable → SurroundingText";
+  SKEY_DEBUG() << "Auto: SurroundingText cap → SurroundingText";
   return SKeyOutputMode::SurroundingText;
 }
 
