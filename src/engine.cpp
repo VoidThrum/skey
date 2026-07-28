@@ -1756,6 +1756,13 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       // won't trigger on multi-word text.
       addrBarIsFirstWord_ = false;
       addrBarHadSpace_ = true;
+    } else if (reclaimReady_) {
+      // Space typed after backspacing the separator but before a tone
+      // key — user wants a new word, not to edit the previous word's
+      // tone.  Cancel reclaim so subsequent tone keys start fresh.
+      SKEY_DEBUG() << "Reclaim: cancelled by space";
+      reclaimReady_ = false;
+      sepAlreadyDeleted_ = false;
     }
     return;
   }
@@ -2020,6 +2027,14 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       }
       viet_.reset();
       committedLen_ = 0;
+    } else if (reclaimReady_) {
+      // User typed space/punctuation after backspacing the separator
+      // but before a tone key — they want to start a new word, not
+      // edit the previous word's tone.  Cancel reclaim so subsequent
+      // tone keys don't resurrect the old word.
+      SKEY_DEBUG() << "Reclaim: cancelled by non-letter key";
+      reclaimReady_ = false;
+      sepAlreadyDeleted_ = false;
     }
     return;
   }
