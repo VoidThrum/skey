@@ -1006,13 +1006,9 @@ bool SKeyState::isWayland() const {
   if (display.find("wayland") != std::string::npos) {
     return true;
   }
-  const auto fe = ic_->frontendName();
-  if (fe.find("wayland") != std::string::npos) {
-    return true;
-  }
-  // XWayland apps report display="x11:" and frontend="xim", but they
-  // still run under a Wayland compositor with lower latency than real
-  // X11 (no hardware X server).  Detect the Wayland session via env.
+  // XWayland apps report display="x11:", but they still run under a
+  // Wayland compositor with lower latency than real X11 (no hardware
+  // X server).  Detect the Wayland session via env.
   static bool waylandSession = []() {
     const char *env = getenv("WAYLAND_DISPLAY");
     return env != nullptr && env[0] != '\0';
@@ -1129,7 +1125,7 @@ void SKeyState::activate() {
                << " urlCap=" << caps.test(CapabilityFlag::Url)
                << " preeditCap=" << caps.test(CapabilityFlag::Preedit)
                << " nativeSurrounding=" << useNativeSurroundingApi()
-               << " frontend=" << ic_->frontendName()
+               << " frontend=" << ic_->display()
                << " display=" << ic_->display()
                << " wayland=" << isWayland() << " app=" << ic_->program()
                << " caps=0x" << std::hex
