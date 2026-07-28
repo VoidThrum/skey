@@ -239,17 +239,32 @@ FCITX_DEFINE_LOG_CATEGORY(skey_log, "skey");
 #define SKEY_INFO() SKeyLogger()
 
 /// Check if a program name is a known Chromium-based browser.
+// Matches actual Chromium-family browser programs.
+// Used ONLY for address-bar detection — electron/tabby must NOT match here
+// or non-browser Electron apps are misidentified as Chrome address bar.
 static bool isChromiumBrowser(const std::string &prog) {
-  // Match common Chromium browser program names
   static const char *const patterns[] = {
       "chrome",  "chromium",       "google-chrome", "brave",
-      "vivaldi", "microsoft-edge", "opera",         "electron",
-      "tabby",   // Electron-based terminal
+      "vivaldi", "microsoft-edge", "opera",
   };
   for (const char *p : patterns) {
     if (prog.find(p) != std::string::npos) {
       return true;
     }
+  }
+  return false;
+}
+
+// Matches Chromium-family browsers AND Electron-based apps.
+// Electron apps share Chromium's multi-process architecture and need the
+// same BackSpace→commit timing adjustments.  Use this for everything
+// EXCEPT inChromiumAddressBar(), which must use the narrower
+// isChromiumBrowser() to avoid false positives.
+static bool isChromiumBasedApp(const std::string &prog) {
+  if (isChromiumBrowser(prog)) return true;
+  static const char *const electronPatterns[] = {"electron", "tabby"};
+  for (const char *p : electronPatterns) {
+    if (prog.find(p) != std::string::npos) return true;
   }
   return false;
 }
@@ -811,7 +826,7 @@ SKeyOutputMode SKeyState::detectAutoMode() const {
 
   // Electron terminals (Tabby) advertise SurroundingText but the
   // compositor only sends empty surrounding text.
-  if (isChromiumBrowser(ic_->program()) &&
+  if (isChromiumBasedApp(ic_->program()) &&
       !caps.test(CapabilityFlag::SpellCheck)) {
     SKEY_DEBUG() << "Auto: Chromium without SpellCheck → Uinput";
     return SKeyOutputMode::Uinput;
@@ -1105,7 +1120,7 @@ bool SKeyState::handlePendingUinputBackspace(KeyEvent &keyEvent) {
     // Chromium/Electron apps have multi-process architecture (renderer
     // + main process + IPC) — they need extra time to process BS before
     // commitString arrives.  Apply the configured delay factor.
-    if (!inChromiumAddressBar() && isChromiumBrowser(ic_->program())) {
+    if (!inChromiumAddressBar() && isChromiumBasedApp(ic_->program())) {
       minDelay = static_cast<uint64_t>(minDelay * timing.chromiumDelayFactor);
       maxDelay = static_cast<uint64_t>(maxDelay * timing.chromiumDelayFactor);
     }
@@ -1116,7 +1131,7 @@ bool SKeyState::handlePendingUinputBackspace(KeyEvent &keyEvent) {
                  << "ms), commit '" << commitText << "' in "
                  << (delayUsec / 1000) << "ms"
                  << (inChromiumAddressBar() ? " [addrbar]" : "")
-                 << (isChromiumBrowser(ic_->program()) ? " [chromium]" : "");
+                 << (isChromiumBasedApp(ic_->program()) ? " [chromium]" : "");
 
     uinputCommitTimer_ = engine_->instance()->eventLoop().addTimeEvent(
         CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + delayUsec, 0,
@@ -1819,7 +1834,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
           // In surrounding text mode, oldComposed is already on screen.
           // Replace it with committed + newComposed.
           // Set trigger-key guard for Chromium (see same logic below).
-          if (isChromiumBrowser(ic_->program()) && !oldComposed.empty()) {
+          if (isChromiumBasedApp(ic_->program()) && !oldComposed.empty()) {
             addrBarLastTriggerKey_ = static_cast<int>(sym);
             addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) + 200000;
           }
@@ -1941,7 +1956,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
           // SurroundingText path in Chromium: set trigger-key guard so
           // X11 re-delivery after forwardKey-induced focus cycles is dropped.
           // Only for replacements (oldComposed non-empty), not first char.
-          if (isChromiumBrowser(ic_->program()) &&
+          if (isChromiumBasedApp(ic_->program()) &&
               !oldComposed.empty() && oldComposed != newComposed) {
             addrBarLastTriggerKey_ = static_cast<int>(sym);
             addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) + 200000;
@@ -2293,7 +2308,7 @@ void SKeyState::surroundingCommit(const std::string &oldComposed,
         // SurroundingText forwardKey path: D-Bus forwardKey may trigger
         // Chrome focus cycles (omnibox autocomplete).  Protect engine state
         // even when inChromiumAddressBar() wasn't detected (AT-SPI2 race).
-        if (isChromiumBrowser(ic_->program())) {
+        if (isChromiumBasedApp(ic_->program())) {
           addrBarExpectCycle_ = true;
         }
         for (int i = 0; i < deleteLen; ++i) {
