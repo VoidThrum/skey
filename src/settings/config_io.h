@@ -10,21 +10,21 @@ std::string configDir();
 /// Main Skey configuration (maps to skey.conf)
 struct SKeyConfig {
     std::string inputMethod  = "Telex";       // "Telex", "VNI"
-    std::string outputMode   = "Uinput";      // "Uinput", "Surrounding Text", "Preedit"
+    std::string outputMode   = "Auto";        // "Auto", "Uinput", "Surrounding Text", "Preedit"
     std::string charset      = "Unicode";     // "Unicode", "TCVN3 (ABC)", "VNI Windows"
     bool shortW       = false;   // Telex: bare 'w' → 'ư'
     bool bracketUO    = false;   // Telex: '[' → 'ơ', ']' → 'ư'
     bool freeMarking  = false;
     bool autoRestore  = true;
     bool showPreedit  = true;
-    std::string chromiumAddressBarMode = "Preedit";  // "Uinput", "Surrounding Text", "Preedit", "No Vietnamese"
+    std::string chromiumAddressBarMode = "Auto";  // "Auto", "Uinput", "Surrounding Text", "Preedit", "No Vietnamese"
     bool debug        = false;
 };
 
 /// Per-application mode overrides (maps to skey-app-modes.conf)
 struct AppModesConfig {
     /// Ordered list of (programName, mode) pairs.
-    /// mode values: "Auto", "Uinput", "SurroundingText", "Preedit", "Excluded"
+    /// mode values: "Auto", "Uinput", "Surrounding Text", "Preedit", "Excluded"
     std::vector<std::pair<std::string, std::string>> entries;
 };
 

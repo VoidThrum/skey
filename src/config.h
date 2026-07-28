@@ -36,33 +36,23 @@ FCITX_CONFIG_ENUM_NAME_WITH_I18N(SKeyCharset, N_("Unicode"),
 
 FCITX_CONFIGURATION(
     SKeyConfig,
-    // Input method: Telex or VNI
     Option<SKeyInputMethod> inputMethod{this, "InputMethod",
-                                        _("Input Method"),
+                                        _("Kiểu gõ"),
                                         SKeyInputMethod::Telex};
-    // Telex only: type bare 'w' → 'ư' (uses bamboo telex_w)
     Option<bool> shortW{this, "ShortW", _("Gõ w thành ư"), false};
-    // Telex only: type '[' → 'ơ' and ']' → 'ư' (UniKey-style)
     Option<bool> bracketUO{this, "BracketUO", _("Gõ ][ thành ư ơ"), false};
-    // Character set / encoding
     Option<SKeyCharset> charset{this, "Charset", _("Bảng mã"),
                                 SKeyCharset::Unicode};
-    // Output mode: uinput (default), surrounding text, or preedit
-    Option<SKeyOutputMode> outputMode{this, "OutputMode", _("Output Mode"),
+    Option<SKeyOutputMode> outputMode{this, "OutputMode", _("Chế độ xuất"),
                                       SKeyOutputMode::Auto};
-    // Allow free tone/mark placement
-    Option<bool> freeMarking{this, "FreeMarking", _("Free marking"), false};
-    // Auto restore non-Vietnamese text
+    Option<bool> freeMarking{this, "FreeMarking", _("Đánh dấu tự do"), false};
     Option<bool> autoRestore{this, "AutoRestore",
-                             _("Auto restore non-Vietnamese"), true};
-    // Show preedit text
-    Option<bool> showPreedit{this, "ShowPreedit", _("Show preedit"), true};
-    // Output mode used in Chromium-family browser address bars
+                             _("Tự động khôi phục"), true};
+    Option<bool> showPreedit{this, "ShowPreedit", _("Hiện preedit"), true};
     Option<SKeyChromiumAddressBarMode> chromiumAddressBarMode{
         this, "ChromiumAddressBarMode",
-        _("Chromium address bar"), SKeyChromiumAddressBarMode::Auto};
-    // Enable debug logging
-    Option<bool> debug{this, "Debug", _("Enable debug logging"), false};);
+        _("Thanh địa chỉ Chromium"), SKeyChromiumAddressBarMode::Auto};
+    Option<bool> debug{this, "Debug", _("Ghi log debug"), false};);
 
 } // namespace fcitx
 

@@ -199,7 +199,7 @@ static size_t commonUtf8PrefixBytes(const std::string &a,
 static std::string outputModeName(SKeyOutputMode mode) {
   switch (mode) {
   case SKeyOutputMode::SurroundingText:
-    return "SurroundingText";
+    return "Surrounding Text";
   case SKeyOutputMode::Preedit:
     return "Preedit";
   case SKeyOutputMode::Uinput:
@@ -207,7 +207,7 @@ static std::string outputModeName(SKeyOutputMode mode) {
   case SKeyOutputMode::Auto:
     return "Auto";
   }
-  return "SurroundingText";
+  return "Surrounding Text";
 }
 
 static constexpr size_t maxBufferedUinputKeys = 32;
@@ -629,8 +629,11 @@ const Configuration *SKeyEngine::getConfig() const { return &config_; }
 
 void SKeyEngine::setConfig(const RawConfig &config) {
   config_.load(config, true);
-  // Preserve Debug from file — fcitx5's config system may not include it
-  config_.debug.setValue(readDebugFromFile());
+  // If fcitx5 didn't include Debug in the incoming config (legacy),
+  // preserve the existing file value. Otherwise trust the incoming value.
+  if (!config.valueByPath("Debug")) {
+    config_.debug.setValue(readDebugFromFile());
+  }
   safeSaveAsIni(config_, "conf/skey.conf");
   reloadConfig();
   updateMenuActions();
@@ -698,12 +701,12 @@ SKeyOutputMode SKeyEngine::loadAppMode(const std::string &app) const {
   if (val) {
     if (*val == "Preedit")
       return SKeyOutputMode::Preedit;
-    if (*val == "SurroundingTextSlow")
-      return SKeyOutputMode::SurroundingText; // migrate old config
+    if (*val == "SurroundingTextSlow"
+        || *val == "SurroundingText"
+        || *val == "Surrounding Text")
+      return SKeyOutputMode::SurroundingText;
     if (*val == "Uinput")
       return SKeyOutputMode::Uinput;
-    if (*val == "SurroundingText")
-      return SKeyOutputMode::SurroundingText;
     if (*val == "Auto")
       return SKeyOutputMode::Auto;
   }
@@ -848,12 +851,12 @@ void SKeyState::refreshAppMode() {
       SKeyOutputMode savedMode = engine_->config().outputMode.value();
       if (*val == "Preedit")
         savedMode = SKeyOutputMode::Preedit;
-      else if (*val == "SurroundingTextSlow")
-        savedMode = SKeyOutputMode::SurroundingText; // migrate
+      else if (*val == "SurroundingTextSlow"
+               || *val == "SurroundingText"
+               || *val == "Surrounding Text")
+        savedMode = SKeyOutputMode::SurroundingText;
       else if (*val == "Uinput")
         savedMode = SKeyOutputMode::Uinput;
-      else if (*val == "SurroundingText")
-        savedMode = SKeyOutputMode::SurroundingText;
       appModeOverride_ = savedMode;
       hasAppModeOverride_ = true;
     }
