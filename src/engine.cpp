@@ -824,6 +824,19 @@ SKeyOutputMode SKeyState::detectAutoMode() const {
     return SKeyOutputMode::Uinput;
   }
 
+  // Electron apps advertise SurroundingText but their implementation is
+  // often broken (missing AbsoluteCursorPos, stale cache, wrong cursor).
+  // SpellCheck is a reliable differentiator: full browsers (Chrome, Edge)
+  // set it, but Electron shells (IDEs, terminals, chat apps) don't.
+  // When SpellCheck is absent on Wayland, fall back to Uinput regardless
+  // of the program name — the binary may not contain "electron".
+  if (!caps.test(CapabilityFlag::SpellCheck) &&
+      isWayland() &&
+      caps.test(CapabilityFlag::SurroundingText)) {
+    SKEY_DEBUG() << "Auto: no SpellCheck on Wayland → Uinput";
+    return SKeyOutputMode::Uinput;
+  }
+
   // Electron terminals (Tabby) advertise SurroundingText but the
   // compositor only sends empty surrounding text.
   if (isChromiumBasedApp(ic_->program()) &&
