@@ -1079,6 +1079,8 @@ void SKeyState::activate() {
                    << " firstWord=" << addrBarIsFirstWord_
                    << " hadSpace=" << addrBarHadSpace_;
     }
+    addrBarHadFirstWord_ = false;
+    addrBarDidFullReplace_ = false;
   }
   clearLastWord();
   modeMenuActive_ = false;
@@ -1325,6 +1327,13 @@ bool SKeyState::handlePendingUinputBackspace(KeyEvent &keyEvent) {
           uinputDeleting_ = false;
           if (!cText.empty()) {
             this->commitText(cText);
+          }
+          if (addrBarDidFullReplace_) {
+            addrBarDidFullReplace_ = false;
+            viet_.reset();
+            committedLen_ = static_cast<int>(utf8::length(cText));
+            reclaimReady_ = false;
+            clearLastWord();
           }
           if (!bufferedUinputKeys_.empty()) {
             replayBufferedUinputKeys();
@@ -1717,6 +1726,11 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       committedLen_ = 0;
     }
     clearLastWord(); // Arrow keys, Ctrl+X etc. invalidate retroactive editing
+    if (inChromiumAddressBar()) {
+      addrBarHadFirstWord_ = false;
+      addrBarDidFullReplace_ = false;
+      committedLen_ = 0;
+    }
     return;
   }
 
@@ -1726,6 +1740,12 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
     // of sending forwardKey via D-Bus (which triggers focus changes).
     // Just update bamboo state and let the keystroke reach the app.
     if (inChromiumAddressBar()) {
+      if (addrBarDidFullReplace_) {
+        addrBarDidFullReplace_ = false;
+        viet_.reset();
+        committedLen_ = 0;
+        return;
+      }
       viet_.backspace();
       committedLen_ = viet_.getRawInput().empty()
                           ? 0
@@ -1871,11 +1891,15 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
     // Re-arm cycle protection for address bar (see composing BS handler).
     if (inChromiumAddressBar()) {
       addrBarExpectCycle_ = true;
+      if (committedLen_ == 0) {
+        addrBarHadFirstWord_ = false;
+      }
     }
     if (committedLen_ > 0) {
       committedLen_--;
       if (committedLen_ == 0) {
         wordWasBackspaced_ = true;
+        addrBarHadFirstWord_ = false;
       }
     }
     return; // pass through
@@ -1933,6 +1957,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       // won't trigger on multi-word text.
       addrBarIsFirstWord_ = false;
       addrBarHadSpace_ = true;
+      addrBarHadFirstWord_ = true;
     } else if (reclaimReady_) {
       // Space typed after backspacing the separator but before a tone
       // key — user wants a new word, not to edit the previous word's
@@ -1958,6 +1983,11 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       committedLen_ = 0;
     }
     return;
+  }
+
+  if (key.check(FcitxKey_Delete) && inChromiumAddressBar()) {
+    addrBarHadFirstWord_ = false;
+    addrBarDidFullReplace_ = false;
   }
 
   // Process printable ASCII
@@ -2256,20 +2286,14 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
   if (bs > 0) {
     int totalBs = bs;
     std::string commitText = text;
-    if (addrBarIsFirstWord_ && oldComposedLen > 0 && !fullComposed.empty()) {
-      // First word in address bar: Chrome's inline autocomplete may consume
-      // the first BS (dismissing a suggestion instead of deleting a char).
-      // Delete the ENTIRE old word + 1 extra BS, and commit the FULL new
-      // composed text.  This way:
-      //   - autocomplete eats 1 BS → remaining BS delete old word → correct
-      //   - no autocomplete → old word deleted + 1 harmless BS on empty → correct
-      // Safe because there is no prior text to damage.
+    if (!addrBarHadFirstWord_ && oldComposedLen > 0 && !fullComposed.empty()) {
       totalBs = oldComposedLen + 1;
       commitText = fullComposed;
+      addrBarHadFirstWord_ = true;
+      addrBarDidFullReplace_ = true;
       SKEY_DEBUG() << "AddrBar: first word, fullReplace BS=" << totalBs
                    << " commit='" << commitText << "'";
     }
-    addrBarIsFirstWord_ = false;
     sendBackspaceUinput(totalBs);
     expectedUinputBackspaces_ = totalBs;
     seenUinputBackspaces_ = 0;

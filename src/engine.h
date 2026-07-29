@@ -161,6 +161,8 @@ private:
     bool reclaimReady_ = false;     // True after BS pressed while idle
     bool sepAlreadyDeleted_ = false; // Separator already deleted by first BS
     bool wordWasBackspaced_ = false; // Word deleted by backspace, block reclaim
+    bool addrBarDidFullReplace_ = false; // FullReplace done, reset engine on commit
+    bool addrBarHadFirstWord_ = false;  // First word already done, block fullReplace
     // True while processing a reclaimed-word replacement — forces
     // surroundingCommit to use forwardKey instead of the native
     // surrounding-text API, which may be out-of-sync after reclaim.
