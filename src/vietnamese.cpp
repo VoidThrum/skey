@@ -332,6 +332,17 @@ void VietnameseEngine::recompose() {
         bambooInput = rawInput_;
     }
 
+    // Find first vowel — tone-key chars before it are letters
+    // (e.g., 'x' in "xi"), not tone marks.  Only dedup tone keys
+    // that appear AFTER the first vowel.
+    size_t firstVowel = std::string::npos;
+    for (size_t i = 0; i < bambooInput.size(); i++) {
+        char c = bambooInput[i];
+        char cl = (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+        if (cl == 'a' || cl == 'e' || cl == 'i' || cl == 'o' ||
+            cl == 'u' || cl == 'y') { firstVowel = i; break; }
+    }
+
     // Deduplicate repeated tone keys: bamboo-core fails when the
     // same tone key (s/f/r/x/j/z) appears multiple times separated
     // by other tone keys (e.g. "looixfsx" — x…x with f,s between).
@@ -344,7 +355,9 @@ void VietnameseEngine::recompose() {
         char cl = (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
         bool isTone = (cl == 's' || cl == 'f' || cl == 'r' ||
                        cl == 'x' || cl == 'j' || cl == 'z');
-        if (isTone) {
+        // Only dedup tone keys after the first vowel (consonant 'x' in
+        // "xi" is a letter, not a tone mark).
+        if (isTone && (firstVowel == std::string::npos || i > firstVowel)) {
             bool later = false, diffBetween = false;
             for (size_t j = i + 1; j < bambooInput.size(); j++) {
                 char cj = bambooInput[j];

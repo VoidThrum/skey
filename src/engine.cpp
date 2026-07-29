@@ -1523,6 +1523,15 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
   // Refresh per-app mode in case IC is shared across apps
   refreshAppMode();
 
+  // Track current word state so reclaim targets the right word
+  // (not a stale previously-saved one after backspace).
+  saveLastWord();
+
+  // Clear backspace tracking when typing a non-BS key
+  if (!keyEvent.key().check(FcitxKey_BackSpace)) {
+    wordWasBackspaced_ = false;
+  }
+
   // App excluded — pass all keys through, except backtick for menu
   if (appExcluded_ && !modeMenuActive_) {
     if (keyEvent.key().check(FcitxKey_grave) && viet_.getRawInput().empty()) {
@@ -1742,6 +1751,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
           SKEY_DEBUG() << "SurrBS: uinput pass-through, len="
                        << committedLen_ << " -> " << (committedLen_ - 1);
           committedLen_--;
+          wordWasBackspaced_ = true; // user is deleting the word
         }
         viet_.reset();
         return; // pass through raw BS (do NOT filter)
@@ -1855,7 +1865,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       return;
     }
     // Non-native-surrounding path: pass through.
-    if (!lastRawInput_.empty()) {
+    if (!lastRawInput_.empty() && !wordWasBackspaced_) {
       reclaimReady_ = true;
     }
     // Re-arm cycle protection for address bar (see composing BS handler).
@@ -1864,6 +1874,9 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
     }
     if (committedLen_ > 0) {
       committedLen_--;
+      if (committedLen_ == 0) {
+        wordWasBackspaced_ = true;
+      }
     }
     return; // pass through
   }
