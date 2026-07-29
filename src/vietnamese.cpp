@@ -196,6 +196,34 @@ ProcessResult VietnameseEngine::processKey(char ch) {
         }
     }
 
+    // Double same-tone key = undo → show clean raw form.
+    // Bamboo-core treats same-tone as no-op (e.g., ngã→ngã stays
+    // ngã), but users expect "xx" to undo and reveal the raw Telex
+    // (base characters + just the tone key, without intermediate
+    // tone keys from prior cycling).
+    {
+        char cl = (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch + 32) : ch;
+        bool isTone = (cl == 's' || cl == 'f' || cl == 'r' ||
+                       cl == 'x' || cl == 'j' || cl == 'z');
+        if (isTone && oldComposed != oldRawInput &&
+            !oldRawInput.empty() && oldComposed == composed_) {
+            char lastCl = oldRawInput.back();
+            if (lastCl >= 'A' && lastCl <= 'Z') lastCl = static_cast<char>(lastCl + 32);
+            if (cl == lastCl) {
+                // Build clean raw form: strip all tone keys from
+                // oldRawInput, keep base chars + append current tone key.
+                std::string base;
+                for (char c : oldRawInput) {
+                    char lc = (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+                    if (lc != 's' && lc != 'f' && lc != 'r' &&
+                        lc != 'x' && lc != 'j' && lc != 'z')
+                        base += c;
+                }
+                composed_ = base + ch;
+            }
+        }
+    }
+
     // Bamboo-core only transforms double-letter Telex patterns
     // (dd→đ, oo→ô, aa→â, etc.) at syllable start (position 0).
     // For all other positions, bamboo leaves the pair as-is.
@@ -290,23 +318,47 @@ std::string VietnameseEngine::getComposed() const {
 
 void VietnameseEngine::recompose() {
     // Telex "][→ươ": translate bracket keys to their Telex equivalents
-    // ('[' → "ow" → ơ, ']' → "uw" → ư) before feeding bamboo. rawInput_
-    // keeps the literal brackets so backspace/undo stay 1-char-per-key.
-    const char *input = rawInput_.c_str();
-    std::string translated;
+    std::string bambooInput;
     if (bracketUO_ && method_ == InputMethod::Telex &&
         (rawInput_.find('[') != std::string::npos ||
          rawInput_.find(']') != std::string::npos)) {
-        translated.reserve(rawInput_.size() + 4);
+        bambooInput.reserve(rawInput_.size() + 4);
         for (char c : rawInput_) {
-            if (c == '[') translated += "ow";
-            else if (c == ']') translated += "uw";
-            else translated += c;
+            if (c == '[') bambooInput += "ow";
+            else if (c == ']') bambooInput += "uw";
+            else bambooInput += c;
         }
-        input = translated.c_str();
+    } else {
+        bambooInput = rawInput_;
     }
 
-    char *result = skey_engine_process_string(handle_, input);
+    // Deduplicate repeated tone keys: bamboo-core fails when the
+    // same tone key (s/f/r/x/j/z) appears multiple times separated
+    // by other tone keys (e.g. "looixfsx" — x…x with f,s between).
+    // In Telex each new tone replaces the previous, so only the
+    // last occurrence matters.  Keep consecutive same-tone pairs
+    // ("xx", "ss"…) — those are intentional undo patterns.
+    std::string deduped;
+    for (size_t i = 0; i < bambooInput.size(); i++) {
+        char c = bambooInput[i];
+        char cl = (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+        bool isTone = (cl == 's' || cl == 'f' || cl == 'r' ||
+                       cl == 'x' || cl == 'j' || cl == 'z');
+        if (isTone) {
+            bool later = false, diffBetween = false;
+            for (size_t j = i + 1; j < bambooInput.size(); j++) {
+                char cj = bambooInput[j];
+                char cjl = (cj >= 'A' && cj <= 'Z') ? static_cast<char>(cj + 32) : cj;
+                if (cl == cjl) { later = true; break; }
+                if (cjl == 's' || cjl == 'f' || cjl == 'r' ||
+                    cjl == 'x' || cjl == 'j' || cjl == 'z') diffBetween = true;
+            }
+            if (later && diffBetween) continue;
+        }
+        deduped += c;
+    }
+
+    char *result = skey_engine_process_string(handle_, deduped.c_str());
     if (result) {
         composed_ = result;
         bamboo_free_string(result);
