@@ -1011,14 +1011,12 @@ bool SKeyState::isWayland() const {
   if (display.find("wayland") != std::string::npos) {
     return true;
   }
-  // XWayland apps report display="x11:", but they still run under a
-  // Wayland compositor with lower latency than real X11 (no hardware
-  // X server).  Detect the Wayland session via env.
-  static bool waylandSession = []() {
-    const char *env = getenv("WAYLAND_DISPLAY");
-    return env != nullptr && env[0] != '\0';
-  }();
-  return waylandSession;
+  // XWayland apps report display="x11:".  Even though they run under
+  // a Wayland compositor, the X11 protocol bridge adds enough latency
+  // (especially through Wine/Proton translation layers) that Wayland
+  // timing constants are too aggressive.  Treat X11-frontend apps as
+  // X11 for timing purposes regardless of the underlying compositor.
+  return false;
 }
 
 const UinputTiming& SKeyState::uinputTiming() const {
