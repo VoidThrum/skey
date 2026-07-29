@@ -1978,10 +1978,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
           isToneKey = (ch >= '0' && ch <= '5');
         }
         if (isToneKey) {
-          // Delete separator before reclaim.  In uinput mode
-          // surroundingCommit handles BS naturally — skip explicit
-          // delete to avoid double-BS / async ordering issues.
-          if (!sepAlreadyDeleted_ && !useUinputMode()) {
+          if (!sepAlreadyDeleted_) {
             ic_->deleteSurroundingText(-1, 1);
             if (ic_->surroundingText().isValid()) {
               ic_->surroundingText().deleteText(-1, 1);
@@ -2612,7 +2609,6 @@ void SKeyState::saveLastWord() {
   lastRawInput_ = viet_.getRawInput();
   lastComposed_ = viet_.getComposed();
   lastCommittedLen_ = committedLen_;
-  reclaimReady_ = true; // allow tone editing without Backspace first
   SKEY_DEBUG() << "SaveLastWord: raw='" << lastRawInput_ << "' composed='"
                << lastComposed_ << "' len=" << lastCommittedLen_;
 }
