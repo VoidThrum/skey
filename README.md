@@ -12,7 +12,7 @@
 
 </div>
 
-SKey (Simple Key) là bộ gõ Tiếng Việt cho Linux trên nền tảng [fcitx5](https://fcitx-im.org/), sử dụng engine [bamboo-core](https://github.com/nguyen10t2/bamboo_core) (Rust) qua FFI. Mặc định chạy ở chế độ **Auto** — tự động chọn giữa Surrounding Text và Uinput dựa trên khả năng của ứng dụng. Bộ gõ chạy monolithic không cần server; riêng chế độ Uinput đi kèm một server tùy chọn để tối ưu hóa việc xóa/thay thế chữ.
+SKey (Simple Key) là bộ gõ Tiếng Việt cho Linux trên nền tảng [fcitx5](https://fcitx-im.org/), sử dụng engine [bamboo-core](https://github.com/nguyen10t2/bamboo_core) (Rust) qua FFI. Mặc định chạy ở chế độ **Auto** — tự động chọn giữa Surrounding Text và Uinput dựa trên khả năng của ứng dụng. Gõ **tự do như UniKey**: double-letter transform (dd→đ, oo→ô...) hoạt động ở mọi vị trí, đổi dấu thanh liên tục không lỗi, viết tắt thoải mái. Bộ gõ chạy monolithic không cần server; riêng chế độ Uinput đi kèm một server tùy chọn để tối ưu hóa việc xóa/thay thế chữ.
 
 ---
 
@@ -25,8 +25,11 @@ SKey (Simple Key) là bộ gõ Tiếng Việt cho Linux trên nền tảng [fcit
 - **Preedit** — hiển thị chữ gạch chân. Phù hợp cho thanh địa chỉ Chromium.
 - **Per-app Mode Override** — ghi đè chế độ gõ cho từng ứng dụng qua menu phím tắt `` ` `` hoặc Settings UI. Cài đặt được lưu vĩnh viễn.
 - **Loại trừ ứng dụng (App Exclusion)** — tắt gõ tiếng Việt cho từng ứng dụng qua menu phím tắt `` ` ``.
-- **Auto-restore** — tự động hoàn nguyên từ không hợp lệ (ví dụ: gõ `telegram` giữ nguyên `telegram` thay vì `tẻlegam`).
-- **Kiểm tra chính tả** — kiểm tra tính hợp lệ âm tiết theo thời gian thực.
+- **Gõ tự do (Unikey-style)** — transform hoạt động ở mọi vị trí: `dd→đ`, `oo→ô`, `aa→â`, `ee→ê`, `aw→ă`, `ow→ơ`, `ww/uw→ư`. Viết tắt (`vcđ`, `nđm`, `NĐ`), gõ chữ không dấu rồi thêm dấu sau, đổi dấu liên tục (`x→s→f→x`) đều hoạt động.
+- **Double-tone undo** — bấm cùng phím dấu 2 lần liên tiếp để hiện raw form (vd: `vãi` → `x` → `vaix`).
+- **Auto-restore** — chỉ hoàn nguyên khi kết quả all-ASCII (bamboo tự undo). Transform có ký tự Việt được giữ nguyên giữa chừng, không revert.
+- **Kiểm tra chính tả** — kiểm tra tính hợp lệ âm tiết theo thời gian thực qua bamboo-core.
+- **Free marking** — cho phép đặt dấu tự do, không bó buộc vị trí.
 - **Vị trí dấu thanh:** Kiểu mới (hoà) hoặc kiểu cũ (hòa).
 - **Menu cấu hình** — chuyển đổi nhanh tùy chọn qua phím tắt `` ` `` và menu hệ thống.
 - **Nhẹ & Gọn** — mặc định là một thư viện liên kết động (.so), không chạy daemon ngầm trừ khi bật chế độ Uinput.
@@ -158,15 +161,17 @@ Sau khi cài đặt + chạy `skey-setup`, SKey là bộ gõ mặc định. Chuy
 
 ### Bảng gõ Telex
 
+Các transform **hoạt động ở mọi vị trí** (đầu, giữa, cuối từ), không giới hạn như bamboo-core gốc:
+
 | Gõ | Kết quả | Mô tả |
 |----|---------|-------|
-| `aa` | â | Dấu mũ |
-| `oo` | ô | Dấu mũ |
-| `ee` | ê | Dấu mũ |
-| `uw` | ư | Dấu móc |
-| `ow` | ơ | Dấu móc |
-| `aw` | ă | Dấu trăng |
-| `dd` | đ | D đét |
+| `aa` | â | Dấu mũ (mọi vị trí) |
+| `oo` | ô | Dấu mũ (mọi vị trí) |
+| `ee` | ê | Dấu mũ (mọi vị trí) |
+| `uw` / `ww` | ư | Dấu móc (mọi vị trí) |
+| `ow` | ơ | Dấu móc (mọi vị trí) |
+| `aw` | ă | Dấu trăng (mọi vị trí) |
+| `dd` | đ | D đét (mọi vị trí, kể cả viết tắt) |
 | `s` | dấu sắc | á, é, ó... |
 | `f` | dấu huyền | à, è, ò... |
 | `r` | dấu hỏi | ả, ẻ, ỏ... |
@@ -285,28 +290,33 @@ Khi server không hoạt động hoặc gặp sự cố mở `/dev/uinput`, SKey
 
 ---
 
-## Auto-restore thông minh
+## Gõ tự do & Auto-restore
 
-SKey tự động nhận diện và hoàn nguyên các từ không phải tiếng Việt bằng cách kết hợp cơ chế hoàn nguyên nguyên âm và giữ nguyên phụ âm cuối (`ddFreeStyle`).
+SKey hỗ trợ gõ tự do kiểu UniKey: tất cả double-letter transform (`dd→đ`, `oo→ô`, `aa→â`, `ee→ê`, `aw→ă`, `ow→ơ`, `ww/uw→ư`) hoạt động ở **mọi vị trí** trong từ, không giới hạn ở đầu âm tiết như bamboo-core gốc.
 
-### Cách hoạt động
+### Gõ viết tắt & tự do dấu
 
-Khi người dùng kết thúc từ (nhấn Space, Enter, hoặc ký tự đặc biệt), SKey kiểm tra:
+| Gõ | Kết quả | Mô tả |
+|----|---------|-------|
+| `vcdd` | vcđ | `dd→đ` sau phụ âm |
+| `nđm` | nđm | Viết tắt nhiều chữ |
+| `aloo` | alô | `oo→ô` sau phụ âm |
+| `NDD` | NĐ | Chữ hoa |
+| `xij` + `x` | xĩ | Đổi dấu tại chỗ |
+| `vãi` + `s` + `f` + `x` | vãi | Đổi dấu liên tục, về đúng dấu cũ |
+| `vãi` + `x` + `x` | vaix | Double-tone = undo ra raw form |
 
-1. **Từ có biến đổi nguyên âm tiếng Việt không?** (ví dụ: `ee` → `ê`, `ow` → `ơ`)
-2. **Kết quả có phải âm tiết tiếng Việt hợp lệ không?** (kiểm tra qua bamboo-core)
-3. Nếu có biến đổi nhưng **không hợp lệ** → **hoàn nguyên** về text gốc
-4. Nếu chỉ có `dd` → `đ` (không kèm biến đổi nguyên âm) → **ddFreeStyle giữ nguyên**
+### Cách hoạt động auto-restore
 
-### Bảng ví dụ
+Auto-restore chỉ kích hoạt khi bamboo-core trả về kết quả **all-ASCII** (tự undo). Kết quả có ký tự tiếng Việt (ô, â, ê, đ...) được **giữ nguyên** — coi đó là transform có chủ đích của người dùng. Không revert giữa chừng.
 
 | Người dùng gõ | Kết quả | Lý do |
 |--------------|---------|-------|
-| `telegram` | telegram | Từ không hợp lệ + có biến đổi nguyên âm → hoàn nguyên |
-| `google` | google | Từ không hợp lệ + có biến đổi nguyên âm → hoàn nguyên |
-| `facebook` | facebook | Không có biến đổi nào → giữ nguyên |
-| `ddc` | đc | Chỉ có `dd` → `đ`, không biến đổi nguyên âm → ddFreeStyle giữ |
-| `vieetj` | việt | Âm tiết tiếng Việt hợp lệ → giữ kết quả |
+| `address` + `ss` | address | Bamboo undo sắc → `addres` (all-ASCII) → restore |
+| `ook` | ôk | `ô` là ký tự Việt → giữ, không restore |
+| `vaai` | vâi | `â` là ký tự Việt → giữ |
+| `ddc` | đc | `đ` là ký tự Việt → ddFreeStyle giữ |
+| `wood` | wôd | `ô` là ký tự Việt → giữ (dùng triple-o để undo nếu cần) |
 
 ---
 
@@ -344,7 +354,11 @@ Khi người dùng kết thúc từ (nhấn Space, Enter, hoặc ký tự đặc
 │      │      (tiến trình riêng ↔ /dev/uinput)    │
 │      ▼                                          │
 │  VietnameseEngine  (wrapper C++)                │
-│      │                                          │
+│      │  - post-processing: double-letter        │
+│      │    transforms ở non-start position       │
+│      │  - tone key dedup (cùng key lặp)        │
+│      │  - double-tone undo (xx → raw form)     │
+│      │  - auto-restore (chỉ all-ASCII)         │
 │      ▼                                          │
 │  bamboo-core (Rust FFI)                         │
 │  ┌─────────────────────────────────────────┐    │
