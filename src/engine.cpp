@@ -1079,6 +1079,7 @@ void SKeyState::activate() {
     }
     addrBarHadFirstWord_ = false;
     addrBarDidFullReplace_ = false;
+    addrBarKeepState_ = false;
   }
   clearLastWord();
   modeMenuActive_ = false;
@@ -1326,8 +1327,23 @@ bool SKeyState::handlePendingUinputBackspace(KeyEvent &keyEvent) {
           if (!cText.empty()) {
             this->commitText(cText);
           }
+          // Restore committedLen_ to the expected final value — it was
+          // decremented by BS during the deletion window, but commitText
+          // doesn't update it.  uinputPendingFinalLen_ was set to the
+          // correct post-replacement length before BS were sent.
+          if (uinputPendingFinalLen_ > 0) {
+            committedLen_ = uinputPendingFinalLen_;
+            uinputPendingFinalLen_ = 0;
+          }
+          // Clear trigger-key guard after commit completes so the user's
+          // intentional second press of the same tone key (for undo) is
+          // not blocked.  The guard already served its purpose — any
+          // re-delivery from the focus cycle arrived before the timer.
+          addrBarLastTriggerKey_ = 0;
+          addrBarTriggerDeadline_ = 0;
           if (addrBarDidFullReplace_) {
             addrBarDidFullReplace_ = false;
+            addrBarKeepState_ = false;
             viet_.reset();
             committedLen_ = static_cast<int>(utf8::length(cText));
             reclaimReady_ = false;
@@ -1727,6 +1743,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
     if (inChromiumAddressBar()) {
       addrBarHadFirstWord_ = false;
       addrBarDidFullReplace_ = false;
+      addrBarKeepState_ = false;
       committedLen_ = 0;
     }
     return;
@@ -1740,6 +1757,18 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
     if (inChromiumAddressBar()) {
       if (addrBarDidFullReplace_) {
         addrBarDidFullReplace_ = false;
+        addrBarKeepState_ = false;
+        viet_.reset();
+        committedLen_ = 0;
+        return;
+      }
+      // After a keep-state fullReplace (single-char tone/diacritic
+      // transform like "e"+"f"→"è" or "e"+"e"→"ê"), the composed
+      // char was committed but engine kept tracking raw input.  One
+      // BS from Chrome deletes the entire committed char, so reset
+      // the engine — partial raw-input backspace doesn't make sense.
+      if (addrBarKeepState_) {
+        addrBarKeepState_ = false;
         viet_.reset();
         committedLen_ = 0;
         return;
@@ -1986,6 +2015,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
   if (key.check(FcitxKey_Delete) && inChromiumAddressBar()) {
     addrBarHadFirstWord_ = false;
     addrBarDidFullReplace_ = false;
+    addrBarKeepState_ = false;
   }
 
   // Process printable ASCII
@@ -2125,10 +2155,18 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
             // Check matching append: old + key == new
             if (oldComposed + keyUtf8 == newComposed) {
               // Forward raw X11 key — instant, no D-Bus latency.
-              // Set cycle protection: subsequent replacement may trigger
-              // spurious focus changes in Chromium address bar.
+              // Set cycle protection + trigger-key guard: subsequent
+              // replacement may trigger spurious focus changes in Chromium
+              // address bar, causing Chrome to re-deliver the forwarded
+              // key.  The guard drops re-delivered keys within 200ms.
               if (inChromiumAddressBar()) {
                 addrBarExpectCycle_ = true;
+                // Set a short trigger-key guard: Chrome may re-deliver the
+                // forwarded key during a spurious focus cycle (~5ms).  A
+                // 50ms window catches re-delivery while letting deliberate
+                // double-presses (aa→â, dd→đ) through (>100ms typical).
+                addrBarLastTriggerKey_ = static_cast<int>(sym);
+                addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) + 50000;
               }
               SKEY_DEBUG() << "Uinput: forward append '" << keyUtf8 << "'";
               return; // forward raw key
@@ -2137,11 +2175,37 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
             // Non-matching: consume key, send BS via uinput,
             // replacement text via commitString with adaptive
             // delay to let the app process uinput BS first.
-            keyEvent.filterAndAccept();
+            // BUT in the address bar, first check if the transform
+            // produced valid Vietnamese — English words that trigger
+            // tone keys (e.g. "ultr" → "ủlt") should be forwarded raw.
             size_t pfx = commonUtf8PrefixBytes(oldComposed, newComposed);
             std::string delPart = oldComposed.substr(pfx);
             std::string addPart = newComposed.substr(pfx);
             int deleteLen = static_cast<int>(utf8::length(delPart));
+
+            // When the previous text was plain ASCII and the new
+            // Vietnamese transform produces an invalid result, forward
+            // the raw key instead — the user is typing English, not
+            // Vietnamese.  Only skip when oldComposed has 2+ chars:
+            // a single vowel with a tone mark (e→è, a→ả) IS valid
+            // Vietnamese and may be the start of a word like "ảnh" or
+            // "èo".  Applied in all uinput modes, not just the address
+            // bar — English words like "ultr" → "ủlt" should never
+            // trigger tone marks anywhere.
+            bool oldAscii = true;
+            for (unsigned char c : oldComposed) {
+              if (c > 127) { oldAscii = false; break; }
+            }
+            if (oldAscii && oldComposed.size() >= 2 && !viet_.isValid()) {
+              SKEY_DEBUG() << "Uinput: invalid VN result '"
+                           << newComposed << "', forward raw '"
+                           << keyUtf8 << "'";
+              viet_.backspace();
+              committedLen_ = static_cast<int>(utf8::length(oldComposed));
+              return; // forward raw key — no filterAndAccept
+            }
+
+            keyEvent.filterAndAccept();
 
             if (deleteLen > 0) {
               SKEY_DEBUG() << "Uinput: consume '" << keyUtf8
@@ -2152,17 +2216,22 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
               // commitString travel the same channel — D-Bus ordering
               // guarantees commitString arrives after BS is processed.
               if (inChromiumAddressBar()) {
+                bool oldAscii = true;
+                for (unsigned char c : oldComposed) {
+                  if (c > 127) { oldAscii = false; break; }
+                }
                 committedLen_ = static_cast<int>(utf8::length(newComposed));
                 scheduleAddrBarReplacement(deleteLen, addPart,
                                            static_cast<int>(utf8::length(oldComposed)),
                                            static_cast<int>(sym),
-                                           newComposed);
+                                           newComposed, oldAscii);
                 return;
               }
               sendBackspaceUinput(deleteLen);
               expectedUinputBackspaces_ = deleteLen;
               seenUinputBackspaces_ = 0;
               pendingUinputCommit_ = addPart;
+              uinputPendingFinalLen_ = static_cast<int>(utf8::length(newComposed));
               uinputDeleting_ = true;
               // Safety: force-commit if BS events are lost
               uinputSafetyTimer_ = engine_->instance()->eventLoop().addTimeEvent(
@@ -2177,6 +2246,10 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
                     seenUinputBackspaces_ = 0;
                     uinputDeleting_ = false;
                     if (!text.empty()) this->commitText(text);
+                    if (uinputPendingFinalLen_ > 0) {
+                      committedLen_ = uinputPendingFinalLen_;
+                      uinputPendingFinalLen_ = 0;
+                    }
                     if (!bufferedUinputKeys_.empty()) replayBufferedUinputKeys();
                     return true;
                   });
@@ -2230,6 +2303,9 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       }
       viet_.reset();
       committedLen_ = 0;
+      // Like space, a separator commits the current word — the next
+      // word is not the first and must not trigger fullReplace.
+      addrBarHadFirstWord_ = true;
     } else if (reclaimReady_) {
       // User typed space/punctuation after backspacing the separator
       // but before a tone key — they want to start a new word, not
@@ -2273,25 +2349,39 @@ void SKeyState::commitBuffer() {
 void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
                                              int oldComposedLen,
                                              int triggerKeySym,
-                                             const std::string &fullComposed) {
+                                             const std::string &fullComposed,
+                                             bool oldComposedIsAscii) {
   // Use uinput BS + adaptive EWMA timer delay before D-Bus commitString.
   // uinput BS goes through kernel → Chrome processes it as a real keystroke
   // (omnibox update, autocomplete dismissal).  The EWMA-based delay adapts
   // to Chrome's actual processing speed — faster machines get lower latency.
   addrBarExpectCycle_ = true;
-  addrBarLastTriggerKey_ = triggerKeySym;
-  addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) + 200000;
   if (bs > 0) {
     int totalBs = bs;
     std::string commitText = text;
     if (!addrBarHadFirstWord_ && oldComposedLen > 0 && !fullComposed.empty()) {
+      // FullReplace: delete oldComposed + 1 extra BS for Chrome autocomplete.
+      // Only add the +1 when the old text was genuine Vietnamese composition
+      // (containing diacritics or tone-marked vowels).  When oldComposed was
+      // plain ASCII (user typing English), the +1 would delete a wanted char.
       totalBs = oldComposedLen + 1;
       commitText = fullComposed;
       addrBarHadFirstWord_ = true;
-      addrBarDidFullReplace_ = true;
+      // Don't reset engine for single-char ASCII→VN transforms
+      // (e.g. "e"+"f"→"è").  Keeping state lets the user undo by
+      // pressing the same tone key again ("ef"+"f"→"ef").
+      addrBarDidFullReplace_ = !(oldComposedIsAscii && oldComposedLen == 1);
+      addrBarKeepState_ = (oldComposedIsAscii && oldComposedLen == 1);
       SKEY_DEBUG() << "AddrBar: first word, fullReplace BS=" << totalBs
-                   << " commit='" << commitText << "'";
+                   << " commit='" << commitText << "'"
+                   << (addrBarKeepState_ ? " [keep-state]" : "");
     }
+    // Trigger-key guard: prevent Chrome's re-delivered key (from focus
+    // cycle after commitString) from being processed as a second key press.
+    // The guard is cleared in the commit timer so the user's intentional
+    // second press (for undo) is not blocked after the commit completes.
+    addrBarLastTriggerKey_ = triggerKeySym;
+    addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) + 200000;
     sendBackspaceUinput(totalBs);
     expectedUinputBackspaces_ = totalBs;
     seenUinputBackspaces_ = 0;
@@ -2523,6 +2613,7 @@ void SKeyState::surroundingCommit(const std::string &oldComposed,
           expectedUinputBackspaces_ = deleteLen;
           seenUinputBackspaces_ = 0;
           pendingUinputCommit_ = addedPart;
+          uinputPendingFinalLen_ = newLen;
           uinputDeleting_ = true;
           // Safety: force-commit if BS events are lost
           uinputSafetyTimer_ = engine_->instance()->eventLoop().addTimeEvent(
@@ -2537,6 +2628,8 @@ void SKeyState::surroundingCommit(const std::string &oldComposed,
                 seenUinputBackspaces_ = 0;
                 uinputDeleting_ = false;
                 if (!text.empty()) this->commitText(text);
+                committedLen_ = uinputPendingFinalLen_;
+                uinputPendingFinalLen_ = 0;
                 if (!bufferedUinputKeys_.empty()) replayBufferedUinputKeys();
                 return true;
               });

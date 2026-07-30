@@ -79,6 +79,11 @@ public:
     /// Whether the engine is in English bypass mode (after undo detected).
     bool isEnglishBypass() const { return englishBypass_; }
 
+    /// Check if the current composition forms a valid Vietnamese syllable.
+    /// Returns false for English words that accidentally trigger tone keys
+    /// (e.g. "ultr" → "ủlt" is not valid Vietnamese).
+    bool isValid() const;
+
 private:
     /// Recompose from raw input using bamboo-core.
     void recompose();

@@ -212,14 +212,40 @@ ProcessResult VietnameseEngine::processKey(char ch) {
             if (cl == lastCl) {
                 // Build clean raw form: strip all tone keys from
                 // oldRawInput, keep base chars + append current tone key.
-                std::string base;
-                for (char c : oldRawInput) {
+                // Find the first vowel — tone keys before it are letters
+                // (e.g., 'x' in "xin"), not tone marks.
+                size_t firstVowel = std::string::npos;
+                for (size_t i = 0; i < oldRawInput.size(); i++) {
+                    char c = oldRawInput[i];
                     char lc = (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
-                    if (lc != 's' && lc != 'f' && lc != 'r' &&
-                        lc != 'x' && lc != 'j' && lc != 'z')
-                        base += c;
+                    if (lc == 'a' || lc == 'e' || lc == 'i' || lc == 'o' ||
+                        lc == 'u' || lc == 'y') { firstVowel = i; break; }
                 }
-                composed_ = base + ch;
+                std::string base;
+                for (size_t i = 0; i < oldRawInput.size(); i++) {
+                    char c = oldRawInput[i];
+                    char lc = (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+                    bool isToneKey = (lc == 's' || lc == 'f' || lc == 'r' ||
+                                     lc == 'x' || lc == 'j' || lc == 'z');
+                    // Only strip tone keys that appear after the first vowel —
+                    // tone keys before the vowel are regular letters.
+                    if (isToneKey &&
+                        firstVowel != std::string::npos &&
+                        static_cast<int>(i) > static_cast<int>(firstVowel))
+                        continue;
+                    base += c;
+                }
+                // Commit the clean base and reset the engine so that
+                // subsequent keys start from the current tone key as a
+                // regular letter.  Without this reset the full rawInput_
+                // (including old tone keys) gets re-processed by bamboo
+                // and the tone re-appears, creating an unbreakable cycle:
+                //   xìn →(f) xinf →(f) xìn →(f) xinf …
+                committed_ = base;
+                rawInput_ = std::string(1, ch);
+                composed_ = rawInput_;
+                skey_engine_reset(handle_);
+                return ProcessResult::Committed;
             }
         }
     }
@@ -401,6 +427,10 @@ void VietnameseEngine::recompose() {
             composed_ = rawInput_;
         }
     }
+}
+
+bool VietnameseEngine::isValid() const {
+    return skey_engine_is_valid(handle_) != 0;
 }
 
 void VietnameseEngine::autoRestore() {

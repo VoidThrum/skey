@@ -84,7 +84,8 @@ private:
     void scheduleAddrBarReplacement(int bs, const std::string &text,
                                      int oldComposedLen = 0,
                                      int triggerKeySym = 0,
-                                     const std::string &fullComposed = {});
+                                     const std::string &fullComposed = {},
+                                     bool oldComposedIsAscii = false);
 
     SKeyEngine *engine_;
     InputContext *ic_;
@@ -116,6 +117,7 @@ private:
     std::unique_ptr<EventSourceTime> uinputSafetyTimer_;
     int expectedUinputBackspaces_ = 0;
     int seenUinputBackspaces_ = 0;
+    int uinputPendingFinalLen_ = 0; // expected committedLen_ after BS+commit
     // Address bar deferred replacement state
     int addrBarPendingBs_ = 0;
     std::string addrBarPendingText_;
@@ -163,6 +165,7 @@ private:
     bool wordWasBackspaced_ = false; // Word deleted by backspace, block reclaim
     bool addrBarDidFullReplace_ = false; // FullReplace done, reset engine on commit
     bool addrBarHadFirstWord_ = false;  // First word already done, block fullReplace
+    bool addrBarKeepState_ = false;     // Keep-state active, reset engine on BS
     // True while processing a reclaimed-word replacement — forces
     // surroundingCommit to use forwardKey instead of the native
     // surrounding-text API, which may be out-of-sync after reclaim.
