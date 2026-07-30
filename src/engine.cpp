@@ -137,17 +137,20 @@ struct UinputTiming {
     uint64_t perCharUsec;        // per-char overhead for Ctrl+Shift+U typing
 };
 
-// X11 defaults (current values, well-tested)
+// X11: sync BS approach — send N+1 BS, the extra one anchors ordering.
+// By the time the (N+1)-th BS arrives back at fcitx5, X11 has serialized
+// all N real BS to the app.  A short adaptive sleep replaces the old
+// async EWMA×3 commit timer — lower latency, no race condition.
 static constexpr UinputTiming kUinputTimingX11 = {
     0.3,     // bsRtEwmaAlpha
-    8000,    // bsRtInitialUsec
-    3.0,     // bsRtMultiplier
-    3.0,     // addrBarBsRtMultiplier
-    10000,   // commitDelayMinUsec
-    10000,   // addrBarCommitDelayMinUsec
-    50000,   // commitDelayMaxUsec (50ms cap)
-    50000,   // addrBarCommitDelayMaxUsec
-    1.0,     // chromiumDelayFactor
+    5000,    // bsRtInitialUsec
+    1.5,     // bsRtMultiplier (sync BS guarantees ordering, lower multiplier)
+    3.0,     // addrBarBsRtMultiplier (unchanged)
+    3000,    // commitDelayMinUsec — 3ms floor for native
+    10000,   // addrBarCommitDelayMinUsec — 10ms (unchanged)
+    30000,   // commitDelayMaxUsec — 30ms cap for native
+    50000,   // addrBarCommitDelayMaxUsec — 50ms (unchanged)
+    2.0,     // chromiumDelayFactor — 2× → 6ms–60ms for Electron/Chromium
     150000,  // safetyTimeoutUsec (150ms)
     20000,   // passthroughBaseUsec
     35000,   // passthroughMinUsec
@@ -1268,110 +1271,97 @@ bool SKeyState::handlePendingUinputBackspace(KeyEvent &keyEvent) {
     return true;
   }
 
-  // Count BS events.  ALL of them pass through to the app (no sentinel).
-  ++seenUinputBackspaces_;
-  // Keep local tracking in sync: each BS (uinput or user-typed) that
-  // passes through during the deletion window deletes one character from
-  // the screen.  If we don't update committedLen_ here, subsequent
-  // replacements will compute deleteLen from a stale oldComposed, causing
-  // old deleted characters to reappear or extra chars to be deleted.
-  if (committedLen_ > 0) {
-    committedLen_--;
-  }
-  SKEY_DEBUG() << "Uinput: pass BS " << seenUinputBackspaces_ << "/"
-               << expectedUinputBackspaces_;
-
-  if (seenUinputBackspaces_ >= expectedUinputBackspaces_) {
-    // All BS events passed through — cancel safety timeout.
-    uinputSafetyTimer_.reset();
-    // All BS events passed through the IM module — the app has
-    // received them.  But D-Bus commitString may still race with
-    // kernel event processing in the app's event loop.  Small
-    // delay (5ms) lets the app finish processing the last BS.
-    expectedUinputBackspaces_ = 0;
-    seenUinputBackspaces_ = 0;
-
-    std::string commitText = pendingUinputCommit_;
-    pendingUinputCommit_.clear();
-
-    uint64_t elapsed = now(CLOCK_MONOTONIC) - bsSentAt_;
-    lastBsRoundTrip_ = elapsed;
-
-    // Adaptive delay via EWMA of measured round-trip times.
-    // Smooths out Chrome processing time variations (system load,
-    // tab count, omnibox autocomplete activity).  Faster machines
-    // naturally converge to lower delays.
-    auto& timing = uinputTiming();
-    if (bsRtEwma_ == timing.bsRtInitialUsec || bsRtEwma_ == 0) {
-      bsRtEwma_ = elapsed;  // first sample — seed directly
-    } else {
-      bsRtEwma_ = static_cast<uint64_t>(
-          timing.bsRtEwmaAlpha * elapsed +
-          (1.0 - timing.bsRtEwmaAlpha) * bsRtEwma_);
+  // Count BS events.
+  // N real BS pass through to the app (character deletion).
+  // The (N+1)-th BS is the sync anchor — it's consumed here.
+  if (seenUinputBackspaces_ < expectedUinputBackspaces_) {
+    ++seenUinputBackspaces_;
+    if (committedLen_ > 0) {
+      committedLen_--;
     }
-    double multiplier = inChromiumAddressBar()
-                            ? timing.addrBarBsRtMultiplier
-                            : timing.bsRtMultiplier;
-    uint64_t minDelay = inChromiumAddressBar()
-                            ? timing.addrBarCommitDelayMinUsec
-                            : timing.commitDelayMinUsec;
-    uint64_t maxDelay = inChromiumAddressBar()
-                            ? timing.addrBarCommitDelayMaxUsec
-                            : timing.commitDelayMaxUsec;
-    // Chromium/Electron apps have multi-process architecture (renderer
-    // + main process + IPC) — they need extra time to process BS before
-    // commitString arrives.  Apply the configured delay factor.
-    if (!inChromiumAddressBar() && isChromiumCached()) {
+    SKEY_DEBUG() << "Uinput: pass BS " << seenUinputBackspaces_ << "/"
+                 << expectedUinputBackspaces_;
+    return true; // forward real BS to app
+  }
+
+  // ── Sync BS arrived ──
+  // The extra BS (+1 beyond real deletions) acts as a sync anchor.
+  // By the time it arrives back at fcitx5, X11 has serialized all N real
+  // BS to the app.  Consume it, adaptive sleep, commit synchronously.
+  // Address bar uses its own conservative timing constants.
+  keyEvent.filterAndAccept();
+  uinputSafetyTimer_.reset();
+
+  expectedUinputBackspaces_ = 0;
+  seenUinputBackspaces_ = 0;
+
+  std::string commitText = pendingUinputCommit_;
+  pendingUinputCommit_.clear();
+
+  uint64_t elapsed = now(CLOCK_MONOTONIC) - bsSentAt_;
+  lastBsRoundTrip_ = elapsed;
+
+  // Adaptive sleep via EWMA of measured round-trip times.
+  auto& timing = uinputTiming();
+  if (bsRtEwma_ == timing.bsRtInitialUsec || bsRtEwma_ == 0) {
+    bsRtEwma_ = elapsed;
+  } else {
+    bsRtEwma_ = static_cast<uint64_t>(
+        timing.bsRtEwmaAlpha * elapsed +
+        (1.0 - timing.bsRtEwmaAlpha) * bsRtEwma_);
+  }
+  double multiplier;
+  uint64_t minDelay, maxDelay;
+  if (inChromiumAddressBar()) {
+    multiplier = timing.addrBarBsRtMultiplier;
+    minDelay   = timing.addrBarCommitDelayMinUsec;
+    maxDelay   = timing.addrBarCommitDelayMaxUsec;
+  } else {
+    multiplier = timing.bsRtMultiplier;
+    minDelay   = timing.commitDelayMinUsec;
+    maxDelay   = timing.commitDelayMaxUsec;
+    if (isChromiumCached()) {
+      multiplier *= timing.chromiumDelayFactor;
       minDelay = static_cast<uint64_t>(minDelay * timing.chromiumDelayFactor);
       maxDelay = static_cast<uint64_t>(maxDelay * timing.chromiumDelayFactor);
     }
-    uint64_t delayUsec = std::clamp(
-        static_cast<uint64_t>(bsRtEwma_ * multiplier), minDelay, maxDelay);
-    SKEY_DEBUG() << "Uinput: all BS passed, RT " << (elapsed / 1000)
-                 << "ms (ewma " << (bsRtEwma_ / 1000)
-                 << "ms), commit '" << commitText << "' in "
-                 << (delayUsec / 1000) << "ms"
-                 << (inChromiumAddressBar() ? " [addrbar]" : "")
-                 << (isChromiumCached() ? " [chromium]" : "");
-
-    uinputCommitTimer_ = engine_->instance()->eventLoop().addTimeEvent(
-        CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + delayUsec, 0,
-        [this, cText = commitText](EventSourceTime *, uint64_t) {
-          uinputCommitTimer_.reset();
-          uinputSafetyTimer_.reset();
-          uinputDeleting_ = false;
-          if (!cText.empty()) {
-            this->commitText(cText);
-          }
-          // Restore committedLen_ to the expected final value — it was
-          // decremented by BS during the deletion window, but commitText
-          // doesn't update it.  uinputPendingFinalLen_ was set to the
-          // correct post-replacement length before BS were sent.
-          if (uinputPendingFinalLen_ > 0) {
-            committedLen_ = uinputPendingFinalLen_;
-            uinputPendingFinalLen_ = 0;
-          }
-          // Clear trigger-key guard after commit completes so the user's
-          // intentional second press of the same tone key (for undo) is
-          // not blocked.  The guard already served its purpose — any
-          // re-delivery from the focus cycle arrived before the timer.
-          addrBarLastTriggerKey_ = 0;
-          addrBarTriggerDeadline_ = 0;
-          if (addrBarDidFullReplace_) {
-            addrBarDidFullReplace_ = false;
-            addrBarKeepState_ = false;
-            viet_.reset();
-            committedLen_ = static_cast<int>(utf8::length(cText));
-            reclaimReady_ = false;
-            clearLastWord();
-          }
-          if (!bufferedUinputKeys_.empty()) {
-            replayBufferedUinputKeys();
-          }
-          return true;
-        });
   }
-  return true; // let BS reach the app (not consumed)
+  uint64_t sleepUsec =
+      std::clamp(static_cast<uint64_t>(bsRtEwma_ * multiplier),
+                 minDelay, maxDelay);
+
+  SKEY_DEBUG() << "Uinput: sync BS, RT " << (elapsed / 1000)
+               << "ms (ewma " << (bsRtEwma_ / 1000)
+               << "ms), sleep " << (sleepUsec / 1000)
+               << "ms then commit '" << commitText << "'"
+               << (inChromiumAddressBar() ? " [addrbar]" : "")
+               << (isChromiumCached() ? " [chromium]" : "");
+
+  usleep(sleepUsec);
+
+  // ── Commit synchronously ──
+  uinputDeleting_ = false;
+  if (!commitText.empty()) {
+    this->commitText(commitText);
+  }
+  if (uinputPendingFinalLen_ > 0) {
+    committedLen_ = uinputPendingFinalLen_;
+    uinputPendingFinalLen_ = 0;
+  }
+  addrBarLastTriggerKey_ = 0;
+  addrBarTriggerDeadline_ = 0;
+  if (addrBarDidFullReplace_) {
+    addrBarDidFullReplace_ = false;
+    addrBarKeepState_ = false;
+    viet_.reset();
+    committedLen_ = static_cast<int>(utf8::length(commitText));
+    reclaimReady_ = false;
+    clearLastWord();
+  }
+  if (!bufferedUinputKeys_.empty()) {
+    replayBufferedUinputKeys();
+  }
+  return true; // sync BS consumed
 }
 
 void SKeyState::replayBufferedUinputKeys() {
@@ -2252,7 +2242,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
                                            newComposed, oldAscii);
                 return;
               }
-              sendBackspaceUinput(deleteLen);
+              sendBackspaceUinput(deleteLen + 1);  // +1 sync BS
               expectedUinputBackspaces_ = deleteLen;
               seenUinputBackspaces_ = 0;
               pendingUinputCommit_ = addPart;
@@ -2264,7 +2254,6 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
                   [this](EventSourceTime *, uint64_t) {
                     SKEY_DEBUG() << "Uinput: safety timeout, force commit";
                     uinputSafetyTimer_.reset();
-                    uinputCommitTimer_.reset();
                     std::string text = std::move(pendingUinputCommit_);
                     pendingUinputCommit_.clear();
                     expectedUinputBackspaces_ = 0;
@@ -2416,7 +2405,7 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
     // second press (for undo) is not blocked after the commit completes.
     addrBarLastTriggerKey_ = triggerKeySym;
     addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) + 200000;
-    sendBackspaceUinput(totalBs);
+    sendBackspaceUinput(totalBs + 1);  // +1 sync BS
     expectedUinputBackspaces_ = totalBs;
     seenUinputBackspaces_ = 0;
     pendingUinputCommit_ = commitText;
@@ -2427,7 +2416,6 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
         [this](EventSourceTime *, uint64_t) {
           SKEY_DEBUG() << "Uinput: safety timeout, force commit";
           uinputSafetyTimer_.reset();
-          uinputCommitTimer_.reset();
           std::string text = std::move(pendingUinputCommit_);
           pendingUinputCommit_.clear();
           expectedUinputBackspaces_ = 0;
@@ -2643,7 +2631,7 @@ void SKeyState::surroundingCommit(const std::string &oldComposed,
           return;
         }
         if (useUinputMode()) {
-          sendBackspaceUinput(deleteLen);
+          sendBackspaceUinput(deleteLen + 1);  // +1 sync BS
           expectedUinputBackspaces_ = deleteLen;
           seenUinputBackspaces_ = 0;
           pendingUinputCommit_ = addedPart;
