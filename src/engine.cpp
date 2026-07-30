@@ -1936,6 +1936,15 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       addrBarExpectCycle_ = true;
       if (committedLen_ == 0) {
         addrBarHadFirstWord_ = false;
+        // First idle BS after committed word: reclaim was armed above.
+        // Track subsequent BS so we can cancel reclaim.
+        committedLen_ = -1;
+      } else if (committedLen_ == -1) {
+        // Second+ idle BS: user is deleting the word, not editing its
+        // tone.  Cancel reclaim so the next tone key starts a new word
+        // instead of resurrecting the deleted word.
+        reclaimReady_ = false;
+        wordWasBackspaced_ = true;
       }
     }
     if (committedLen_ > 0) {
@@ -2377,20 +2386,29 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
     std::string commitText = text;
     if (!addrBarHadFirstWord_ && oldComposedLen > 0 && !fullComposed.empty()) {
       // FullReplace: delete oldComposed + 1 extra BS for Chrome autocomplete.
-      // Only add the +1 when the old text was genuine Vietnamese composition
-      // (containing diacritics or tone-marked vowels).  When oldComposed was
-      // plain ASCII (user typing English), the +1 would delete a wanted char.
-      totalBs = oldComposedLen + 1;
-      commitText = fullComposed;
-      addrBarHadFirstWord_ = true;
-      // Don't reset engine for single-char ASCII→VN transforms
-      // (e.g. "e"+"f"→"è").  Keeping state lets the user undo by
-      // pressing the same tone key again ("ef"+"f"→"ef").
-      addrBarDidFullReplace_ = !(oldComposedIsAscii && oldComposedLen == 1);
-      addrBarKeepState_ = (oldComposedIsAscii && oldComposedLen == 1);
-      SKEY_DEBUG() << "AddrBar: first word, fullReplace BS=" << totalBs
-                   << " commit='" << commitText << "'"
-                   << (addrBarKeepState_ ? " [keep-state]" : "");
+      // Only add the +1 when the current word is truly at the start of the
+      // text field (no previous words before it).  Use surrounding text to
+      // check: if cursor > oldComposedLen, there are words before us and
+      // fullReplace would damage text to the left of the cursor.
+      bool hasTextBefore = false;
+      const auto &surrounding = ic_->surroundingText();
+      if (surrounding.isValid()) {
+        hasTextBefore = surrounding.cursor() >
+                        static_cast<unsigned int>(oldComposedLen);
+      }
+      if (!hasTextBefore) {
+        totalBs = oldComposedLen + 1;
+        commitText = fullComposed;
+        addrBarHadFirstWord_ = true;
+        // Don't reset engine for single-char ASCII→VN transforms
+        // (e.g. "e"+"f"→"è").  Keeping state lets the user undo by
+        // pressing the same tone key again ("ef"+"f"→"ef").
+        addrBarDidFullReplace_ = !(oldComposedIsAscii && oldComposedLen == 1);
+        addrBarKeepState_ = (oldComposedIsAscii && oldComposedLen == 1);
+        SKEY_DEBUG() << "AddrBar: first word, fullReplace BS=" << totalBs
+                     << " commit='" << commitText << "'"
+                     << (addrBarKeepState_ ? " [keep-state]" : "");
+      }
     }
     // Trigger-key guard: prevent Chrome's re-delivered key (from focus
     // cycle after commitString) from being processed as a second key press.
