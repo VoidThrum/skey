@@ -50,7 +50,16 @@ sudo apt install fcitx5-skey
 
 Package tự động chạy `skey-setup` để cấu hình fcitx5, bật `ActiveByDefault` và `ShareInputState`, export biến môi trường (`GTK_IM_MODULE`, `QT_IM_MODULE`, `XMODIFIERS`) cho cả X11 và Wayland. Bộ gõ SKey sẵn sàng sử dụng ngay sau khi cài — chuyển đổi bằng **Ctrl+Space**.
 
-Để gõ tiếng Việt trên các ứng dụng AppImage hoặc ứng dụng chạy qua IBus frontend, thêm vào `~/.profile`:
+> ⚠️ **Wayland:** Sau khi cài, vào System Settings → Input Devices → Virtual Keyboard chọn **Fcitx 5**. Nếu không thấy tuỳ chọn này, logout/login rồi kiểm tra lại.
+
+Nếu gõ không được sau khi cài hoặc update, chạy lại:
+
+```bash
+sudo skey-setup
+fcitx5 -r -d
+```
+
+Để gõ tiếng Việt trên các ứng dụng AppImage hoặc ứng dụng chạy qua IBus frontend, thêm vào `~/.profile` (hoặc chạy `sudo skey-setup` để tự động cấu hình):
 
 ```bash
 export GTK_IM_MODULE=fcitx
@@ -60,16 +69,6 @@ export SDL_IM_MODULE=fcitx
 export GLFW_IM_MODULE=ibus
 ```
 
-Trên KDE Wayland, thêm dòng sau vào `~/.config/environment.d/fcitx.conf` để systemd user session nhận biến môi trường:
-
-```
-GTK_IM_MODULE=fcitx
-QT_IM_MODULE=fcitx
-XMODIFIERS=@im=fcitx
-SDL_IM_MODULE=fcitx
-GLFW_IM_MODULE=ibus
-```
-
 ### Từ file .deb
 
 Tải file `.deb` mới nhất từ [GitHub Releases](https://github.com/collyn/skey/releases):
@@ -77,7 +76,11 @@ Tải file `.deb` mới nhất từ [GitHub Releases](https://github.com/collyn/
 ```bash
 sudo dpkg -i fcitx5-skey_*.deb
 sudo apt install -f  # cài dependencies nếu cần
+sudo skey-setup       # cấu hình fcitx5 và uinput server
+fcitx5 -r -d          # restart fcitx5
 ```
+
+> ⚠️ **Wayland:** Chọn Virtual Keyboard là **Fcitx 5** trong System Settings (xem [Khắc phục sự cố](#khắc-phục-sự-cố-sau-khi-cài-đặt--cập-nhật)).
 
 ### Build từ source
 
@@ -143,7 +146,39 @@ Script `skey-setup` sẽ:
 1. Thêm SKey vào fcitx5 profile (ActiveByDefault, ShareInputState)
 2. Export biến môi trường `GTK_IM_MODULE`, `QT_IM_MODULE`, `XMODIFIERS`, `SDL_IM_MODULE`, `GLFW_IM_MODULE`
 3. Trên Wayland + KDE/GNOME: tự động reconnect compositor virtual keyboard
-4. Inject biến môi trường fcitx vào systemd user session
+4. Enable + start `fcitx5-skey-uinput-server@$USER` service (cần cho chế độ Uinput)
+
+### Khắc phục sự cố sau khi cài đặt / cập nhật
+
+Nếu sau khi cài hoặc update mà **không gõ được tiếng Việt**, chạy lại:
+
+```bash
+sudo skey-setup
+fcitx5 -r -d
+```
+
+**Lưu ý quan trọng cho Wayland:** Sau khi chạy `skey-setup`, vào cài đặt hệ thống chọn Virtual Keyboard là **"Fcitx 5"** (không phải IBus hay None):
+
+| Desktop | Đường dẫn cài đặt |
+|---------|------------------|
+| **KDE Plasma** | System Settings → Input Devices → Virtual Keyboard → chọn **Fcitx 5** |
+| **GNOME** | Settings → Keyboard → Input Sources → chọn **Vietnamese (Fcitx 5)** |
+| **Hyprland / Sway / Niri** | Thêm `exec-once = fcitx5 -d` vào config file |
+
+Nếu Wayland không có tuỳ chọn Virtual Keyboard, kiểm tra compositor đã hỗ trợ `zwp_input_method_v2` chưa. Với KDE ≥ 6.0 hoặc GNOME ≥ 45, tính năng này có sẵn mặc định.
+
+**Sau khi update gặp lỗi lạ:** Thử logout/login hoàn toàn để session Wayland/X11 nhận biến môi trường mới. Nếu vẫn lỗi, kiểm tra:
+
+```bash
+# Kiểm tra fcitx5 đang chạy chưa
+pidof fcitx5
+
+# Kiểm tra uinput server
+systemctl status fcitx5-skey-uinput-server@$USER.service
+
+# Xem log để debug
+tail -f /tmp/skey.log
+```
 
 #### Build .deb
 
@@ -264,17 +299,23 @@ Trên Wayland, Chrome hỗ trợ `CapabilityFlag::Url` nên việc phát hiện 
 
 ### Chế độ Trì hoãn Tự Thích ứng (Adaptive Delay)
 
-Đối với chế độ **Surrounding Text** và **Uinput**, SKey sử dụng EWMA (Exponentially Weighted Moving Average) để đo thời gian round-trip thực tế của phím Backspace:
-- Tự động tính toán thời gian phản hồi qua các lệnh xóa phím
-- Sử dụng công thức tự thích ứng để giảm thời gian chờ xuống mức tối ưu nhất (thường chỉ khoảng ~10-15ms)
-- Nếu ứng dụng có hỗ trợ đầy đủ API Surrounding Text gốc (như Qt/GTK), SKey sẽ thực hiện xóa và commit ngay lập tức (0ms)
-- Có safety timeout 150ms để tránh freeze nếu BS events bị thất lạc
+Đối với chế độ **Uinput**, SKey sử dụng kỹ thuật **Backspace đồng bộ (Sync BS)** lấy cảm hứng từ fcitx5-lotus:
+
+- Gửi N+1 phím Backspace qua `/dev/uinput`: N phím để xoá chữ cũ, 1 phím neo (anchor) làm điểm đồng bộ
+- N phím BS đầu tiên đi thẳng vào ứng dụng để xoá văn bản. Phím neo thứ N+1 quay trở lại fcitx5 — lúc này kernel/X11 đã serialize xong toàn bộ N phím trước đó, đảm bảo thứ tự BS → commit chính xác
+- **EWMA** (Exponentially Weighted Moving Average) đo thời gian round-trip thực tế của phím BS để tính sleep thích ứng:
+  - App native (Qt/GTK): **3–30ms**
+  - Chromium/Electron: **6–60ms** (×2.0, bù cho multi-process pipeline)
+  - Thanh địa chỉ Chromium: **10–50ms** (conservative, tránh xung đột với autocomplete)
+- **Commit đồng bộ** ngay sau sleep — không cần timer async, không race condition
+- Safety timeout **150ms** để tránh freeze nếu BS events bị thất lạc
+- Trên X11, sync BS giải quyết vấn đề BS (uinput kernel→X11) và commit (D-Bus) đi qua 2 kênh khác nhau, không đảm bảo thứ tự. Wayland serialize tự nhiên qua compositor nên delay thấp hơn (2–18ms)
 
 ### Output mode Uinput
 
 Chế độ **Uinput** gửi yêu cầu Backspace trực tiếp đến trình điều khiển hệ thống qua service `fcitx5-skey-uinput-server`. Phương pháp này giúp khắc phục lỗi mất chữ trên một số ứng dụng đặc thù hoặc terminal app không hỗ trợ Surrounding Text.
 
-Bật service trước khi chọn chế độ Uinput:
+`skey-setup` tự động enable và start service. Nếu cần bật thủ công:
 
 ```bash
 sudo systemctl enable --now fcitx5-skey-uinput-server@$USER.service
