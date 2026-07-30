@@ -958,28 +958,13 @@ SKeyOutputMode SKeyState::detectAutoMode() const {
     return SKeyOutputMode::Uinput;
   }
 
-  // Electron/Chromium apps advertise SurroundingText but their
-  // implementation is often broken (missing AbsoluteCursorPos, stale
-  // cache, wrong cursor).  SpellCheck is a reliable differentiator:
-  // full browsers (Chrome, Edge) set it, but Electron shells don't.
-  // Only demote apps that match known Chromium-based patterns — native
-  // apps (Telegram, Qt/GTK) have a working SurroundingText impl.
-  //
-  if (isChromiumCached() &&
-      !caps.test(CapabilityFlag::SpellCheck) &&
-      isWayland() &&
-      caps.test(CapabilityFlag::SurroundingText)) {
-    SKEY_DEBUG() << "Auto: Electron on Wayland without SpellCheck → Uinput";
-    return SKeyOutputMode::Uinput;
-  }
-
-  // Same for non-Wayland (X11/XWayland): Electron apps without
-  // SpellCheck have broken SurroundingText (e.g. Tabby).
-  if (isChromiumCached() &&
-      !caps.test(CapabilityFlag::SpellCheck)) {
-    SKEY_DEBUG() << "Auto: Chromium without SpellCheck → Uinput";
-    return SKeyOutputMode::Uinput;
-  }
+  // Electron/Chromium apps sometimes advertise SurroundingText but
+  // have broken implementations (stale cache, wrong cursor).  Instead
+  // of pre-judging based on SpellCheck, let them try SurroundingText
+  // first.  If the API actually fails, surroundingTextFailed_ is set
+  // during the first replacement and subsequent keystrokes automatically
+  // downgrade to Uinput.  This is fast — the check is just a pointer
+  // validation in surroundingCommit().
 
   SKEY_DEBUG() << "Auto: SurroundingText cap → SurroundingText";
   return SKeyOutputMode::SurroundingText;
