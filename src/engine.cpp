@@ -302,8 +302,9 @@ static bool isChromiumBasedApp(const std::string &prog) {
         std::string basename = (slash != std::string::npos)
                                    ? cmdline.substr(slash + 1)
                                    : cmdline;
-        if (basename != prog && basename.find(prog) == std::string::npos &&
-            prog.find(basename) == std::string::npos)
+        if (basename.empty() ||
+            (basename != prog && basename.find(prog) == std::string::npos &&
+             prog.find(basename) == std::string::npos))
           continue;
       } else {
         continue;
