@@ -881,10 +881,11 @@ bool SKeyState::inChromiumAddressBar() const {
 }
 
 SKeyOutputMode SKeyState::effectiveMode() const {
-  // Cache result — capability flags only change on activate (focus switch).
-  // This avoids calling detectAutoMode() (which scans /proc via
+  // Cache result to avoid calling detectAutoMode() (which scans /proc via
   // isChromiumBasedApp) multiple times per keystroke.
-  if (modeCacheValid_) return cachedMode_;
+  if (modeCacheValid_) {
+    return cachedMode_;
+  }
 
   const_cast<SKeyState *>(this)->refreshAppMode();
 
@@ -958,13 +959,42 @@ SKeyOutputMode SKeyState::detectAutoMode() const {
     return SKeyOutputMode::Uinput;
   }
 
-  // Electron/Chromium apps sometimes advertise SurroundingText but
-  // have broken implementations (stale cache, wrong cursor).  Instead
-  // of pre-judging based on SpellCheck, let them try SurroundingText
-  // first.  If the API actually fails, surroundingTextFailed_ is set
-  // during the first replacement and subsequent keystrokes automatically
-  // downgrade to Uinput.  This is fast — the check is just a pointer
-  // validation in surroundingCommit().
+  // Chromium address bar always needs Uinput — the omnibox autocomplete
+  // races with SurroundingText replacements, corrupting text.
+  if (inChromiumAddressBar() &&
+      caps.test(CapabilityFlag::SurroundingText)) {
+    SKEY_DEBUG() << "Auto: address bar → Uinput";
+    return SKeyOutputMode::Uinput;
+  }
+
+  // Electron apps (not full browsers): bare caps without content hints
+  // (0x72) → terminal / plain text input → Uinput.  Content-hint flags
+  // (UppercaseWords, Alpha, etc.) indicate a real editor with working
+  // SurroundingText.  Unlike full browsers, Electron apps don't send
+  // progressive caps for terminals — 0x72 stays 0x72.
+  if (caps.test(CapabilityFlag::SurroundingText) &&
+      isChromiumCached() &&
+      !isChromiumBrowser(ic_->program()) &&
+      !caps.test(CapabilityFlag::Url)) {
+    static constexpr uint64_t kContentHints =
+        (1ULL << 7)  |  // Email
+        (1ULL << 8)  |  // Digit
+        (1ULL << 9)  |  // Uppercase
+        (1ULL << 10) |  // Lowercase
+        (1ULL << 11) |  // NoAutoUpperCase
+        (1ULL << 13) |  // Dialable
+        (1ULL << 14) |  // Number
+        (1ULL << 15) |  // NoOnScreenKeyboard
+        (1ULL << 19) |  // UppercaseWords
+        (1ULL << 21) |  // Alpha
+        (1ULL << 22) |  // Name
+        (1ULL << 3);    // Password
+    CapabilityFlags contentHints(kContentHints);
+    if (!(caps & contentHints)) {
+      SKEY_DEBUG() << "Auto: Electron without content hints → Uinput";
+      return SKeyOutputMode::Uinput;
+    }
+  }
 
   SKEY_DEBUG() << "Auto: SurroundingText cap → SurroundingText";
   return SKeyOutputMode::SurroundingText;
