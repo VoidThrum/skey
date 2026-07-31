@@ -55,8 +55,7 @@ Package tự động chạy `skey-setup` để cấu hình fcitx5, bật `Active
 Nếu gõ không được sau khi cài hoặc update, chạy lại:
 
 ```bash
-sudo skey-setup
-fcitx5 -r -d
+skey-setup
 ```
 
 Để gõ tiếng Việt trên các ứng dụng AppImage hoặc ứng dụng chạy qua IBus frontend, thêm vào `~/.profile` (hoặc chạy `sudo skey-setup` để tự động cấu hình):
@@ -153,8 +152,7 @@ Script `skey-setup` sẽ:
 Nếu sau khi cài hoặc update mà **không gõ được tiếng Việt**, chạy lại:
 
 ```bash
-sudo skey-setup
-fcitx5 -r -d
+skey-setup
 ```
 
 **Lưu ý quan trọng cho Wayland:** Sau khi chạy `skey-setup`, vào cài đặt hệ thống chọn Virtual Keyboard là **"Fcitx 5"** (không phải IBus hay None):
