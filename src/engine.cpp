@@ -1925,7 +1925,6 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
     if (inChromiumAddressBar()) {
       addrBarExpectCycle_ = true;
       if (committedLen_ == 0) {
-        addrBarHadFirstWord_ = false;
         // First idle BS after committed word: reclaim was armed above.
         // Track subsequent BS so we can cancel reclaim.
         committedLen_ = -1;
@@ -2405,6 +2404,9 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
     // second press (for undo) is not blocked after the commit completes.
     addrBarLastTriggerKey_ = triggerKeySym;
     addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) + 200000;
+    // Sync BS handler uses this to restore committedLen_ after BS
+    // pass-through decrements it (same as general uinput path).
+    uinputPendingFinalLen_ = static_cast<int>(utf8::length(fullComposed));
     sendBackspaceUinput(totalBs + 1);  // +1 sync BS
     expectedUinputBackspaces_ = totalBs;
     seenUinputBackspaces_ = 0;
@@ -2422,6 +2424,17 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
           seenUinputBackspaces_ = 0;
           uinputDeleting_ = false;
           if (!text.empty()) this->commitText(text);
+          if (uinputPendingFinalLen_ > 0) {
+            committedLen_ = uinputPendingFinalLen_;
+            uinputPendingFinalLen_ = 0;
+          }
+          if (addrBarDidFullReplace_) {
+            addrBarDidFullReplace_ = false;
+            addrBarKeepState_ = false;
+            if (!text.empty()) {
+              committedLen_ = static_cast<int>(utf8::length(text));
+            }
+          }
           if (!bufferedUinputKeys_.empty()) replayBufferedUinputKeys();
           return true;
         });

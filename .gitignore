@@ -58,6 +58,8 @@ out/
 *.filters
 *.ipch
 .clangd/
+.cache/
+.claude/settings.local.json
 
 # Rust/Cargo
 bamboo/target/
@@ -82,3 +84,6 @@ __pycache__/
 
 Testing/
 bamboo/Testing/
+
+# GitNexus
+.gitnexus/
