@@ -58,7 +58,7 @@ Nếu gõ không được sau khi cài hoặc update, chạy lại:
 skey-setup
 ```
 
-Để gõ tiếng Việt trên các ứng dụng AppImage hoặc ứng dụng chạy qua IBus frontend, thêm vào `~/.profile` (hoặc chạy `sudo skey-setup` để tự động cấu hình):
+Để gõ tiếng Việt trên các ứng dụng AppImage hoặc ứng dụng chạy qua IBus frontend, thêm vào `~/.profile` (hoặc chạy `skey-setup` để tự động cấu hình):
 
 ```bash
 export GTK_IM_MODULE=fcitx
@@ -75,7 +75,7 @@ Tải file `.deb` mới nhất từ [GitHub Releases](https://github.com/collyn/
 ```bash
 sudo dpkg -i fcitx5-skey_*.deb
 sudo apt install -f  # cài dependencies nếu cần
-sudo skey-setup       # cấu hình fcitx5 và uinput server
+skey-setup       # cấu hình fcitx5 và uinput server
 ```
 
 > ⚠️ **Wayland:** Chọn Virtual Keyboard là **Fcitx 5** trong System Settings (xem [Khắc phục sự cố](#khắc-phục-sự-cố-sau-khi-cài-đặt--cập-nhật)).
@@ -258,22 +258,60 @@ SKey đi kèm ứng dụng **fcitx5-skey-settings** (Qt6) để cấu hình tr�
 
 - **Tab Chung**: tất cả tùy chọn gõ (phương thức, chế độ output, bảng mã, dấu thanh...)
 - **Tab Ứng dụng**: cấu hình chế độ gõ riêng cho từng ứng dụng (Auto / Uinput / Surrounding Text / Preedit / Excluded)
-- **Tab Info**: phiên bản, kiểm tra cập nhật (tự động tải + cài .deb từ GitHub Releases), **nút khởi động lại Fcitx5** (có xử lý Wayland reconnect)
+- **Tab Info**: phiên bản, kiểm tra cập nhật, **nút khởi động lại Fcitx5**
 
 Mở từ menu ứng dụng hoặc terminal: `fcitx5-skey-settings`
 
+### Cập nhật từ Settings GUI
+
+SKey hỗ trợ **cập nhật tự động ngay trong giao diện** — không cần mở terminal:
+
+1. Mở `fcitx5-skey-settings` → **Tab Info**
+2. Bấm **"Kiểm tra cập nhật"** — app truy vấn GitHub Releases API để so sánh phiên bản
+3. Nếu có phiên bản mới → hiện dialog với **version + release notes** → bấm **"Cập nhật ngay"**
+4. App tự động **tải .deb** → **cài qua `pkexec dpkg -i`** → **chạy `skey-setup`** → **restart Fcitx5** (có reconnect Wayland virtual keyboard)
+5. Settings GUI tự khởi động lại với phiên bản mới sau khi cài xong
+
+Toàn bộ quy trình diễn ra trong GUI — người dùng chỉ cần bấm 2 nút: "Kiểm tra cập nhật" → "Cập nhật ngay". Sau khi cập nhật, Fcitx5 được restart tự động và sẵn sàng sử dụng ngay.
+
+> 💡 **Sau khi update**, nếu gặp lỗi (không gõ được, mất biểu tượng...), chạy `skey-setup` trong terminal. Trên Wayland, kiểm tra lại Virtual Keyboard vẫn đang chọn **Fcitx 5**.
+
 ### Chế độ Auto (mặc định)
 
-Chế độ **Auto** tự động chọn giữa Surrounding Text và Uinput khi focus vào một ứng dụng, dựa trên các tín hiệu từ fcitx5 capability flags:
+Chế độ **Auto** tự động chọn giữa Surrounding Text và Uinput khi focus vào một ứng dụng. Logic được đánh giá theo thứ tự ưu tiên (tiered cascade) — rule nào khớp trước sẽ quyết định, không cần kiểm tra các rule sau:
 
-| Điều kiện | Mode được chọn | Ví dụ app |
-|-----------|---------------|-----------|
-| Có `Terminal` flag | Uinput | Konsole, Alacritty |
-| Là Chromium + **không** có `SpellCheck` | Uinput | Tabby (Electron terminal) |
-| Có `SurroundingText` capability | Surrounding Text | Chrome, Firefox, Telegram, Antigravity |
-| Không có `SurroundingText` capability | Uinput | App X11 cũ |
+```
+1. surroundText trước đó đã fail?         → Uinput  (runtime degradation)
+2. Không có SurroundingText capability?    → Uinput  (app X11 cũ, WINE...)
+3. Terminal app? (flag Terminal hoặc tên)  → Uinput  (Konsole, Alacritty, Kitty...)
+4. Đang ở thanh địa chỉ Chromium?         → Uinput  (tránh xung đột omnibox autocomplete)
+5. Electron app không có content hints?    → Uinput  (Tabby, VS Code terminal pane...)
+6. Còn lại                                  → SurroundingText
+```
 
-Nếu Auto chọn Surrounding Text nhưng surrounding text không thực sự hoạt động (cache rỗng sau vài lần gõ), engine tự động hạ cấp xuống Uinput.
+**Giải thích từng tầng:**
+
+| # | Điều kiện | Lý do |
+|---|-----------|-------|
+| 1 | `surroundingTextFailed_` | SurroundingText đã được thử nhưng `isValid()` trả về `false` — API không thực sự hoạt động dù capability flag có bật. Hạ cấp vĩnh viễn cho input context này. |
+| 2 | Thiếu `SurroundingText` cap | Ứng dụng không quảng bá hỗ trợ surrounding text — không có cách nào đọc/ghi văn bản qua API, phải dùng uinput. |
+| 3 | Terminal app | Terminal có internal buffer riêng, SurroundingText API không đồng bộ đúng. Phát hiện qua `CapabilityFlag::Terminal` hoặc match tên (`konsole`, `alacritty`, `kitty`, `wezterm`, `foot`, `xterm`...). |
+| 4 | Chromium address bar | Omnibox autocomplete thay đổi text giữa lúc delete và commit, gây corrupt nếu dùng SurroundingText. Phát hiện qua AT-SPI2 (`A11yMonitor`) — chỉ trigger trên browser thực sự (Chrome, Edge, Brave...), không nhầm với Electron app. |
+| 5 | Electron không content hints | Electron app gửi SurroundingText cap nhưng bare flags (`0x72`) — không có content hints như `UppercaseWords`, `Alpha`, `Email`... Chứng tỏ đây là terminal/text input, không phải editor thực sự. Browser thực sự (Chrome, Firefox) không bị ảnh hưởng vì có `Url` cap hoặc content hints đầy đủ. |
+
+**Ví dụ cụ thể:**
+
+| App | Cap flags | Tầng khớp | Kết quả |
+|-----|----------|-----------|---------|
+| Chrome/Firefox (web content) | `SurroundingText` + content hints | #6 | SurroundingText |
+| Chrome address bar (X11) | `SurroundingText` + AT-SPI2 detect | #4 | Uinput |
+| Tabby (Electron terminal) | `SurroundingText` bare, no hints | #5 | Uinput |
+| VS Code (Electron editor) | `SurroundingText` + content hints | #6 | SurroundingText |
+| Konsole, Alacritty | `Terminal` flag | #3 | Uinput |
+| App X11 cũ (GTK2, WINE) | Không có `SurroundingText` | #2 | Uinput |
+| App có S/T cap nhưng API fail | `SurroundingText` nhưng `isValid()=false` | #1 | Uinput |
+
+Kết quả detect được cache cho mỗi input context, không quét lại `/proc` mỗi keystroke.
 
 Để ghi đè cho một ứng dụng cụ thể: bấm `` ` `` → chọn mode mong muốn. Cài đặt được lưu vĩnh viễn trong `~/.config/fcitx5/conf/skey-app-modes.conf`.
 
@@ -293,7 +331,7 @@ Trên Wayland, Chrome hỗ trợ `CapabilityFlag::Url` nên việc phát hiện 
 
 ### Chế độ Trì hoãn Tự Thích ứng (Adaptive Delay)
 
-Đối với chế độ **Uinput**, SKey sử dụng kỹ thuật **Backspace đồng bộ (Sync BS)** lấy cảm hứng từ fcitx5-lotus:
+Đối với chế độ **Uinput**, SKey sử dụng kỹ thuật **Backspace đồng bộ (Sync BS)** lấy cảm hứng từ fcitx5-lotus và tối ưu phần delay thay vì tạo ra nhiều chế độ Smooth, Super Smooth, Slow. Thật sự hồi mới dùng mình không biết phải chọn cái nào nên khi phát triển skey mình chỉ để chung 1 chế độ Uinput duy nhất và sử dụng các thuật toán để tự động đánh gía độ delay tránh mất chữ khi gõ:
 
 - Gửi N+1 phím Backspace qua `/dev/uinput`: N phím để xoá chữ cũ, 1 phím neo (anchor) làm điểm đồng bộ
 - N phím BS đầu tiên đi thẳng vào ứng dụng để xoá văn bản. Phím neo thứ N+1 quay trở lại fcitx5 — lúc này kernel/X11 đã serialize xong toàn bộ N phím trước đó, đảm bảo thứ tự BS → commit chính xác
