@@ -76,7 +76,6 @@ Tải file `.deb` mới nhất từ [GitHub Releases](https://github.com/collyn/
 sudo dpkg -i fcitx5-skey_*.deb
 sudo apt install -f  # cài dependencies nếu cần
 sudo skey-setup       # cấu hình fcitx5 và uinput server
-fcitx5 -r -d          # restart fcitx5
 ```
 
 > ⚠️ **Wayland:** Chọn Virtual Keyboard là **Fcitx 5** trong System Settings (xem [Khắc phục sự cố](#khắc-phục-sự-cố-sau-khi-cài-đặt--cập-nhật)).
@@ -135,10 +134,7 @@ Sau khi build và install:
 
 ```bash
 # Cấu hình fcitx5 profile và biến môi trường
-sudo skey-setup
-
-# Restart fcitx5
-fcitx5 -r -d
+skey-setup
 ```
 
 Script `skey-setup` sẽ:
