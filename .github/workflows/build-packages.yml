@@ -60,7 +60,9 @@ jobs:
                 rpm-build rpm-sign gpg createrepo_c
           - distro: opensuse
             image: opensuse/tumbleweed
-            pre_install: zypper --non-interactive install tar git
+            pre_install: |
+              zypper --non-interactive remove busybox-gawk 2>/dev/null || :
+              zypper --non-interactive install tar git gawk
             install: |
               zypper --non-interactive install cmake extra-cmake-modules \
                 fcitx5-devel fcitx5 dbus-1-devel gettext gcc-c++ make \
