@@ -52,6 +52,7 @@ jobs:
         include:
           - distro: fedora
             image: fedora:40
+            pre_install: dnf install -y tar git
             install: |
               dnf install -y cmake extra-cmake-modules fcitx5-devel fcitx5 \
                 dbus-devel gettext gcc-c++ make rust cargo \
@@ -59,6 +60,7 @@ jobs:
                 rpm-build rpm-sign gpg createrepo_c
           - distro: opensuse
             image: opensuse/leap:15.6
+            pre_install: zypper --non-interactive install tar git
             install: |
               zypper --non-interactive install cmake extra-cmake-modules \
                 fcitx5-devel fcitx5 dbus-1-devel gettext gcc-c++ make rust cargo \
@@ -69,6 +71,9 @@ jobs:
       image: ${{ matrix.image }}
 
     steps:
+      - name: Install prerequisites (tar, git)
+        run: ${{ matrix.pre_install }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -119,14 +124,18 @@ jobs:
       options: --privileged  # needed for makepkg fakeroot
 
     steps:
+      - name: Install prerequisites (tar, git)
+        run: |
+          pacman-key --init 2>/dev/null || :
+          pacman -Syu --noconfirm tar git
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: |
-          pacman-key --init 2>/dev/null || :
           pacman -Syu --noconfirm base-devel sudo cmake extra-cmake-modules \
-            fcitx5 gettext dbus rust qt6-base git
+            fcitx5 gettext dbus rust qt6-base
 
       - name: Create builder user (makepkg refuses root)
         run: |
@@ -144,8 +153,9 @@ jobs:
           VER=$(grep -oP 'project\(fcitx5-skey VERSION \K[0-9.]+' CMakeLists.txt)
           echo "PKG_VERSION=$VER" >> $GITHUB_ENV
           sed -i "s/^pkgver=.*/pkgver=$VER/" packaging/PKGBUILD
-          mkdir -p "src/fcitx5-skey-$VER"
-          cp -a . "src/fcitx5-skey-$VER/"
+          mkdir -p /tmp/pkgsrc/fcitx5-skey-$VER
+          cp -a . /tmp/pkgsrc/fcitx5-skey-$VER/
+          mv /tmp/pkgsrc/fcitx5-skey-$VER src/
 
       - name: Build Arch package
         env:
@@ -221,12 +231,14 @@ jobs:
       image: fedora:40
 
     steps:
+      - name: Install prerequisites (tar, git)
+        run: dnf install -y tar git
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install createrepo_c and git
-        run: |
-          dnf install -y createrepo_c git
+      - name: Install createrepo_c
+        run: dnf install -y createrepo_c
 
       - name: Download RPM artifacts
         uses: actions/download-artifact@v4
@@ -259,13 +271,16 @@ jobs:
       image: archlinux:latest
 
     steps:
+      - name: Install prerequisites (tar, git)
+        run: |
+          pacman-key --init 2>/dev/null || :
+          pacman -Syu --noconfirm tar git
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install pacman and git
-        run: |
-          pacman-key --init 2>/dev/null || :
-          pacman -Syu --noconfirm git pacman
+      - name: Install repo tools
+        run: pacman -Syu --noconfirm pacman
 
       - name: Download Arch artifact
         uses: actions/download-artifact@v4
