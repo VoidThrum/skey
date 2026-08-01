@@ -55,7 +55,7 @@ jobs:
             pre_install: dnf install -y tar git
             install: |
               dnf install -y cmake extra-cmake-modules fcitx5-devel fcitx5 \
-                dbus-devel gettext gcc-c++ make rust cargo \
+                dbus-devel gettext gcc-c++ make \
                 qt6-qtbase-devel librsvg2-tools \
                 rpm-build rpm-sign gpg createrepo_c
           - distro: opensuse
@@ -63,7 +63,7 @@ jobs:
             pre_install: zypper --non-interactive install tar git
             install: |
               zypper --non-interactive install cmake extra-cmake-modules \
-                fcitx5-devel fcitx5 dbus-1-devel gettext gcc-c++ make rust cargo \
+                fcitx5-devel fcitx5 dbus-1-devel gettext gcc-c++ make \
                 qt6-base-devel rsvg-convert \
                 rpm-build gpg2 createrepo_c
 
@@ -100,8 +100,14 @@ jobs:
           sed "s/^Version:.*/Version:        ${{ env.PKG_VERSION }}/" \
             packaging/fcitx5-skey.spec > ~/rpmbuild/SPECS/fcitx5-skey.spec
 
+      - name: Install Rust toolchain (rustup)
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
       - name: Build RPM
         run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
           rpmbuild -bb ~/rpmbuild/SPECS/fcitx5-skey.spec
 
       - name: Find and rename RPM
@@ -152,7 +158,8 @@ jobs:
         run: |
           VER=$(grep -oP 'project\(fcitx5-skey VERSION \K[0-9.]+' CMakeLists.txt)
           echo "PKG_VERSION=$VER" >> $GITHUB_ENV
-          sed -i "s/^pkgver=.*/pkgver=$VER/" packaging/PKGBUILD
+          cp packaging/PKGBUILD ./PKGBUILD
+          sed -i "s/^pkgver=.*/pkgver=$VER/" PKGBUILD
           mkdir -p /tmp/pkgsrc/fcitx5-skey-$VER
           cp -a . /tmp/pkgsrc/fcitx5-skey-$VER/
           mv /tmp/pkgsrc/fcitx5-skey-$VER src/

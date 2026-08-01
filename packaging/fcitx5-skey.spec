@@ -54,6 +54,8 @@ and spell checking.
 
 %build
 # bamboo-core needs network and writable CARGO_HOME inside rpmbuild sandbox
+# Ensure rustup-installed cargo is on PATH (for CI; distro rust works too)
+export PATH="$HOME/.cargo/bin:$PATH"
 export CARGO_HOME=%{_builddir}/.cargo
 mkdir -p "$CARGO_HOME"
 
