@@ -26,8 +26,9 @@ BuildRequires:  gettext
 BuildRequires:  gcc-c++
 BuildRequires:  make
 BuildRequires:  pkgconfig(dbus-1)
-BuildRequires:  rust
-BuildRequires:  cargo
+# rust + cargo provided by rustup in CI; use distro packages for local builds:
+# BuildRequires:  rust
+# BuildRequires:  cargo
 
 %if 0%{?suse_version}
 BuildRequires:  qt6-base-devel
@@ -142,5 +143,5 @@ fi
 %config %{_sysconfdir}/profile.d/fcitx5-skey.sh
 
 %changelog
-* Fri Aug 01 2026 Huy <collyn094@gmail.com> - 0.4.4-1
+* Sat Aug 01 2026 Huy <collyn094@gmail.com> - 0.4.4-1
 - Initial RPM packaging for Fedora and openSUSE

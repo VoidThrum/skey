@@ -59,7 +59,7 @@ jobs:
                 qt6-qtbase-devel librsvg2-tools \
                 rpm-build rpm-sign gpg createrepo_c
           - distro: opensuse
-            image: opensuse/leap:15.6
+            image: opensuse/tumbleweed
             pre_install: zypper --non-interactive install tar git
             install: |
               zypper --non-interactive install cmake extra-cmake-modules \
