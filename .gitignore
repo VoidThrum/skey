@@ -31,6 +31,9 @@
 *.out
 *.app
 *.deb
+*.rpm
+*.pkg.tar.zst
+*.pkg.tar.zst.sig
 
 # CMake files
 CMakeCache.txt

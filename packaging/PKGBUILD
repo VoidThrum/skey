@@ -1,0 +1,72 @@
+# Maintainer: Huy <collyn094@gmail.com>
+# Build: makepkg -f
+
+pkgname=fcitx5-skey
+pkgver=0.4.4
+pkgrel=1
+pkgdesc="Vietnamese SKey input method addon for Fcitx5 (bamboo-core engine)"
+arch=('x86_64')
+url="https://github.com/collyn/skey"
+license=('MIT')
+depends=('fcitx5' 'hicolor-icon-theme' 'qt6-base' 'systemd')
+makedepends=('cmake' 'extra-cmake-modules' 'gettext' 'dbus' 'rust' 'gcc')
+# source is the git checkout itself — CI populates src/ before invoking makepkg -e
+source=()
+
+build() {
+    export CARGO_HOME="$srcdir/.cargo"
+    mkdir -p "$CARGO_HOME"
+    cmake -B build -S "$srcdir/fcitx5-skey-$pkgver" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build build -j"$(nproc)"
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install "$srcdir/build"
+}
+
+post_install() {
+    # Update icon caches
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || :
+        gtk-update-icon-cache /usr/share/icons/breeze 2>/dev/null || :
+        gtk-update-icon-cache /usr/share/icons/breeze-dark 2>/dev/null || :
+    fi
+
+    # Reload systemd units
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload 2>/dev/null || :
+    fi
+
+    # Run skey-setup for the console user
+    if command -v loginctl >/dev/null 2>&1 && command -v skey-setup >/dev/null 2>&1; then
+        CONSOLE_USER=$(loginctl list-sessions --no-legend 2>/dev/null | \
+            awk '$4=="seat0" {print $3}' | sort -u | head -1)
+        if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ]; then
+            su -s /bin/bash "$CONSOLE_USER" -c skey-setup >/dev/null 2>&1 || :
+        fi
+    fi
+}
+
+pre_remove() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl stop "fcitx5-skey-uinput-server@*.service" 2>/dev/null || :
+    fi
+}
+
+post_remove() {
+    if command -v systemctl >/dev/null 2>&1; then
+        for link in /etc/systemd/system/multi-user.target.wants/fcitx5-skey-uinput-server@*; do
+            [ -L "$link" ] || continue
+            instance=$(basename "$link")
+            systemctl disable "$instance" 2>/dev/null || :
+        done
+        systemctl daemon-reload 2>/dev/null || :
+    fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || :
+        gtk-update-icon-cache /usr/share/icons/breeze 2>/dev/null || :
+        gtk-update-icon-cache /usr/share/icons/breeze-dark 2>/dev/null || :
+    fi
+}

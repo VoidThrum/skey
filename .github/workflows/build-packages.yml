@@ -1,0 +1,280 @@
+name: Build Packages (All Platforms)
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '[0-9]*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  # ── Debian / Ubuntu (.deb) ──────────────────────────────────────────────
+  build-deb:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake extra-cmake-modules libfcitx5core-dev \
+            fcitx5 pkg-config gettext dpkg-dev apt-utils librsvg2-bin libdbus-1-dev \
+            libgl1-mesa-dev libxkbcommon-dev libfontconfig1-dev qt6-base-dev
+
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Build .deb package
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-package
+          path: '*.deb'
+
+  # ── Fedora / openSUSE (.rpm) ────────────────────────────────────────────
+  build-rpm:
+    strategy:
+      matrix:
+        include:
+          - distro: fedora
+            image: fedora:42
+            install: |
+              dnf install -y cmake extra-cmake-modules fcitx5-devel fcitx5 \
+                dbus-devel gettext gcc-c++ make rust cargo \
+                qt6-qtbase-devel librsvg2-tools \
+                rpm-build rpm-sign gpg createrepo_c
+          - distro: opensuse
+            image: opensuse/tumbleweed
+            install: |
+              zypper --non-interactive install cmake extra-cmake-modules \
+                fcitx5-devel fcitx5 dbus-1-devel gettext gcc-c++ make rust cargo \
+                qt6-base-devel rsvg-convert \
+                rpm-build gpg2 createrepo_c
+
+    container:
+      image: ${{ matrix.image }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: ${{ matrix.install }}
+
+      - name: Import GPG key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Extract version
+        run: |
+          VER=$(grep -oP 'project\(fcitx5-skey VERSION \K[0-9.]+' CMakeLists.txt)
+          echo "PKG_VERSION=$VER" >> $GITHUB_ENV
+
+      - name: Prepare source tarball and spec
+        run: |
+          mkdir -p ~/rpmbuild/{SOURCES,SPECS}
+          tar czf ~/rpmbuild/SOURCES/fcitx5-skey-${{ env.PKG_VERSION }}.tar.gz \
+            --exclude='.git' --exclude='build' --exclude='build-deb' \
+            --transform "s,^.,fcitx5-skey-${{ env.PKG_VERSION }}," .
+          sed "s/^Version:.*/Version:        ${{ env.PKG_VERSION }}/" \
+            packaging/fcitx5-skey.spec > ~/rpmbuild/SPECS/fcitx5-skey.spec
+
+      - name: Build RPM
+        run: |
+          rpmbuild -bb ~/rpmbuild/SPECS/fcitx5-skey.spec
+
+      - name: Find and rename RPM
+        run: |
+          RPM=$(find ~/rpmbuild/RPMS -name '*.rpm' -not -name '*.src.rpm' | head -1)
+          cp "$RPM" "./"
+          echo "RPM_FILE=$(basename "$RPM")" >> $GITHUB_ENV
+
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-${{ matrix.distro }}
+          path: '*.rpm'
+
+  # ── Arch Linux (.pkg.tar.zst) ───────────────────────────────────────────
+  build-arch:
+    container:
+      image: archlinux:latest
+      options: --privileged  # needed for makepkg fakeroot
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          pacman-key --init 2>/dev/null || :
+          pacman -Syu --noconfirm base-devel sudo cmake extra-cmake-modules \
+            fcitx5 gettext dbus rust qt6-base git
+
+      - name: Create builder user (makepkg refuses root)
+        run: |
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+      - name: Import GPG key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          sudo -u builder gpg --batch --import <<< "$APT_GPG_PRIVATE_KEY"
+
+      - name: Extract version and prepare src
+        run: |
+          VER=$(grep -oP 'project\(fcitx5-skey VERSION \K[0-9.]+' CMakeLists.txt)
+          echo "PKG_VERSION=$VER" >> $GITHUB_ENV
+          sed -i "s/^pkgver=.*/pkgver=$VER/" packaging/PKGBUILD
+          mkdir -p "src/fcitx5-skey-$VER"
+          cp -a . "src/fcitx5-skey-$VER/"
+
+      - name: Build Arch package
+        env:
+          APT_GPG_KEY_EMAIL: ${{ secrets.APT_GPG_KEY_EMAIL }}
+        run: |
+          chown -R builder:builder .
+          sudo -u builder bash -c '
+            export GPGKEY="$APT_GPG_KEY_EMAIL"
+            makepkg -f -e --sign --noconfirm
+          '
+
+      - name: Upload Arch artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-package
+          path: |
+            *.pkg.tar.zst
+            *.pkg.tar.zst.sig
+
+  # ── GitHub Release (all artifacts, tag only) ───────────────────────────
+  release:
+    needs: [build-deb, build-rpm, build-arch]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            fcitx5-skey_*.deb
+            *.rpm
+            *.pkg.tar.zst
+            *.pkg.tar.zst.sig
+          draft: false
+          prerelease: false
+
+  # ── Publish APT repo (gh-pages) ────────────────────────────────────────
+  publish-apt:
+    needs: build-deb
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download .deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deb-package
+
+      - name: Import GPG key and publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_KEY_EMAIL: ${{ secrets.APT_GPG_KEY_EMAIL }}
+        run: |
+          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          scripts/apt-repo/update-repo.sh ./*.deb
+
+  # ── Publish RPM repos (gh-pages) ───────────────────────────────────────
+  publish-rpm:
+    needs: publish-apt
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:42
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install createrepo_c and git
+        run: |
+          dnf install -y createrepo_c git
+
+      - name: Download RPM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Publish RPM repos
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_KEY_EMAIL: ${{ secrets.APT_GPG_KEY_EMAIL }}
+        run: |
+          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          # Fedora RPMs contain .fc in dist tag
+          for rpm in *fc*.rpm; do
+            [ -f "$rpm" ] && bash scripts/rpm-repo/update-repo.sh "$rpm" fedora
+          done
+          # openSUSE RPMs: anything not Fedora
+          for rpm in *.rpm; do
+            case "$rpm" in *fc*|*src*) continue ;; esac
+            [ -f "$rpm" ] && bash scripts/rpm-repo/update-repo.sh "$rpm" opensuse
+          done
+
+  # ── Publish Arch repo (gh-pages) ────────────────────────────────────────
+  publish-arch:
+    needs: publish-rpm
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pacman and git
+        run: |
+          pacman-key --init 2>/dev/null || :
+          pacman -Syu --noconfirm git pacman
+
+      - name: Download Arch artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: arch-package
+
+      - name: Publish Arch repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_KEY_EMAIL: ${{ secrets.APT_GPG_KEY_EMAIL }}
+        run: |
+          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          bash scripts/arch-repo/update-repo.sh ./*.pkg.tar.zst

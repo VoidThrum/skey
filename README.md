@@ -80,55 +80,153 @@ skey-setup       # cấu hình fcitx5 và uinput server
 
 > ⚠️ **Wayland:** Chọn Virtual Keyboard là **Fcitx 5** trong System Settings (xem [Khắc phục sự cố](#khắc-phục-sự-cố-sau-khi-cài-đặt--cập-nhật)).
 
+### RPM Repository — Fedora
+
+```bash
+curl -fsSL https://collyn.github.io/skey/install-fedora.sh | sudo bash
+sudo dnf install fcitx5-skey
+```
+
+Cập nhật tự động qua `dnf update`. Cần thêm frontends để gõ trên GTK/Qt:
+
+```bash
+sudo dnf install fcitx5-gtk fcitx5-qt
+```
+
+### RPM Repository — openSUSE
+
+```bash
+curl -fsSL https://collyn.github.io/skey/install-opensuse.sh | sudo bash
+sudo zypper install fcitx5-skey
+```
+
+Cập nhật tự động qua `zypper up`. Cần thêm frontend GTK:
+
+```bash
+sudo zypper install fcitx5-gtk
+```
+
+### Arch Linux
+
+```bash
+curl -fsSL https://collyn.github.io/skey/install-arch.sh | sudo bash
+sudo pacman -S fcitx5-skey
+```
+
+Cập nhật tự động qua `pacman -Syu`. Cần thêm frontends:
+
+```bash
+sudo pacman -S fcitx5-gtk fcitx5-qt
+```
+
+> **GPG key fingerprint:** Tất cả repository (APT, RPM, Arch) dùng chung một GPG key. Public key tại `https://collyn.github.io/skey/key.asc`. Import thủ công: `curl -fsSL https://collyn.github.io/skey/key.asc | gpg --import`
+
 ### Build từ source
 
 #### Yêu cầu
 
-- Linux với fcitx5 ≥ 5.0
-- CMake ≥ 3.16, Extra CMake Modules (ECM)
-- Fcitx5 development headers (`libfcitx5core-dev`)
-- Rust toolchain (cargo, rustc)
-- GCC/G++ (C++17)
-- Qt6 (cho Settings GUI, tùy chọn)
-- systemd (cho uinput server, tùy chọn)
+| Thành phần | Bắt buộc | Ghi chú |
+|-----------|----------|---------|
+| CMake ≥ 3.16, ECM, pkg-config | ✅ | Hệ thống build |
+| GCC/G++ (C++17) + make | ✅ | Biên dịch C++ |
+| Rust toolchain (rustc, cargo) | ✅ | Build bamboo-core engine |
+| Fcitx5 development headers | ✅ | `Fcitx5::Core`, `fcitx-utils` |
+| dbus-1 development headers | ✅ | AT-SPI2 (phát hiện thanh địa chỉ Chromium) |
+| gettext | ✅ | i18n |
+| Qt6 (Widgets, Core, Network, DBus) | ❌ | Settings GUI (`fcitx5-skey-settings`) |
+| librsvg2 (rsvg-convert) | ❌ | Sinh PNG icon cho system tray (KDE/GNOME) |
+| systemd | ❌ | uinput server |
+| dpkg-dev / rpm-build / base-devel | ❌ | Build package (`.deb`, `.rpm`, `.pkg.tar.zst`) |
 
 #### Cài dependencies
 
-**Ubuntu/Debian:**
+Chọn lệnh phù hợp với nền tảng của bạn. Các gói được chia thành **bắt buộc** (build core engine) và **tùy chọn** (settings GUI, icon, đóng gói).
+
+**Ubuntu / Debian:**
 
 ```bash
-sudo apt install cmake extra-cmake-modules libfcitx5core-dev \
-  libfcitx5utils-dev fcitx5 fcitx5-modules \
-  qt6-base-dev libqt6svg6-dev libgl1-mesa-dev \
-  curl rustc cargo
+# Bắt buộc — toolchain + fcitx5 + dbus
+sudo apt install build-essential cmake extra-cmake-modules pkg-config gettext \
+  libfcitx5core-dev libfcitx5utils-dev fcitx5 \
+  libdbus-1-dev librsvg2-bin curl
+
+# Tùy chọn — Settings GUI (Qt6)
+sudo apt install qt6-base-dev
+
+# Tùy chọn — Build .deb
+sudo apt install dpkg-dev
 ```
+
+> **Rust toolchain:** Trên Ubuntu < 24.04, `rustc`/`cargo` từ apt quá cũ. Dùng rustup:
+> ```bash
+> curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+> source "$HOME/.cargo/env"
+> ```
+> Trên Ubuntu ≥ 24.04, có thể dùng gói từ apt: `sudo apt install rustc cargo`
 
 **Fedora:**
 
 ```bash
-sudo dnf install cmake extra-cmake-modules fcitx5-devel fcitx5 \
-  qt6-qtbase-devel qt6-qtsvg-devel \
-  rust cargo gcc-c++
+# Bắt buộc — toolchain + fcitx5 + dbus
+sudo dnf install cmake extra-cmake-modules pkgconf-pkg-config gettext \
+  fcitx5-devel fcitx5 dbus-devel \
+  rust cargo gcc-c++ make
+
+# Tùy chọn — Settings GUI (Qt6)
+sudo dnf install qt6-qtbase-devel
+
+# Tùy chọn — PNG icon
+sudo dnf install librsvg2-tools
 ```
 
 **Arch Linux:**
 
 ```bash
-sudo pacman -S cmake extra-cmake-modules fcitx5 \
-  qt6-base qt6-svg \
-  rust cargo gcc
+# Bắt buộc — toolchain + fcitx5 + dbus
+sudo pacman -S base-devel cmake extra-cmake-modules pkgconf gettext \
+  fcitx5 dbus \
+  rust cargo
+
+# Tùy chọn — Settings GUI (Qt6)
+sudo pacman -S qt6-base
+
+# Tùy chọn — PNG icon
+sudo pacman -S librsvg
 ```
+
+**openSUSE:**
+
+```bash
+# Bắt buộc — toolchain + fcitx5 + dbus
+sudo zypper install cmake extra-cmake-modules pkgconf gettext \
+  fcitx5-devel fcitx5 dbus-1-devel \
+  rust cargo gcc-c++ make
+
+# Tùy chọn — Settings GUI (Qt6)
+sudo zypper install qt6-base-devel
+
+# Tùy chọn — PNG icon
+sudo zypper install rsvg-convert
+```
+
+> **Ghi chú chung về Rust:** Nếu rust/cargo từ repo distro quá cũ, cài đặt qua rustup để có toolchain mới nhất:
+> ```bash
+> curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+> source "$HOME/.cargo/env"
+> ```
+> Rust ≥ 1.70 được khuyến nghị để build bamboo-core.
 
 #### Build & Install
 
 ```bash
 git clone https://github.com/collyn/skey.git
 cd skey
-mkdir build && cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=/usr
-make -j$(nproc)
-sudo make install
+cmake -B build -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+sudo cmake --install build
 ```
+
+> **Build không có Qt6:** Nếu không cài `qt6-base-dev` (hoặc equivalent), CMake sẽ tự động bỏ qua Settings GUI và chỉ build engine core + uinput server.
 
 Sau khi build và install:
 

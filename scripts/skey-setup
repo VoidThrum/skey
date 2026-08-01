@@ -90,11 +90,25 @@ detect_de() {
     esac
 }
 
+detect_distro() {
+    [ -f /etc/os-release ] || { echo "unknown"; return; }
+    local id
+    id=$(grep -oP '^ID=\K.*' /etc/os-release | tr -d '"')
+    case "$id" in
+        fedora)                      echo "fedora" ;;
+        arch|manjaro|endeavouros|artix|cachyos) echo "arch" ;;
+        opensuse*|suse*)             echo "opensuse" ;;
+        debian|ubuntu|linuxmint|pop) echo "debian" ;;
+        *) echo "$id" ;;
+    esac
+}
+
 USER_SHELL=$(detect_shell)
 USER_DE=$(detect_de)
 SESSION_TYPE="${XDG_SESSION_TYPE:-x11}"
+DISTRO=$(detect_distro)
 
-echo "  Shell: $USER_SHELL  DE: $USER_DE  Session: $SESSION_TYPE"
+echo "  Shell: $USER_SHELL  DE: $USER_DE  Session: $SESSION_TYPE  Distro: $DISTRO"
 
 # ── Determine required environment variables ──
 # KDE Plasma on Wayland: KWin handles GTK/Qt natively via zwp_input_method_v2,
@@ -333,16 +347,25 @@ fi
 # ── Uinput server (systemd service) ──
 # The uinput server injects BackSpace/Unicode keystrokes via /dev/uinput.
 # It must be running for Uinput and Address Bar output modes.
-# We enable + restart the per-user service so it survives reboots and is
-# running the freshly-installed binary.
+# The service unit is installed to /lib/systemd/system (system scope), NOT
+# the user manager. We use system-scope enable + sudo/polkit fallback.
 if command -v systemctl >/dev/null 2>&1; then
     UINPUT_SERVICE="fcitx5-skey-uinput-server@${USER}.service"
-    if systemctl --user is-enabled "$UINPUT_SERVICE" >/dev/null 2>&1; then
-        systemctl --user restart "$UINPUT_SERVICE" 2>/dev/null || true
+    if systemctl is-enabled "$UINPUT_SERVICE" >/dev/null 2>&1; then
+        systemctl restart "$UINPUT_SERVICE" 2>/dev/null || true
         echo "✓ Uinput server restarted: $UINPUT_SERVICE"
-    else
-        systemctl --user enable --now "$UINPUT_SERVICE" 2>/dev/null || true
+    elif [ "$(id -u)" -eq 0 ]; then
+        # Running as root (e.g., from package postinst)
+        systemctl enable --now "$UINPUT_SERVICE" 2>/dev/null || true
         echo "✓ Uinput server enabled + started: $UINPUT_SERVICE"
+    elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+        sudo systemctl enable --now "$UINPUT_SERVICE" 2>/dev/null || true
+        echo "✓ Uinput server enabled + started: $UINPUT_SERVICE (via sudo)"
+    else
+        # PolKit may prompt; best-effort with user scope as last resort
+        systemctl enable --now "$UINPUT_SERVICE" 2>/dev/null || \
+        systemctl --user enable --now "$UINPUT_SERVICE" 2>/dev/null || true
+        echo "✓ Uinput server enable attempted (may need sudo): $UINPUT_SERVICE"
     fi
 fi
 
@@ -351,6 +374,21 @@ fi
 # and don't inherit hicolor, so fcitx5 and the taskbar can't find the
 # skey icon.  Copy the PNG into the current theme's status + apps dirs.
 if [ -f /usr/share/pixmaps/fcitx-skey.png ]; then
+    # Find icon source directory (candidate search across common icon themes)
+    ICON_SRC=""
+    for candidate in \
+        /usr/share/icons/hicolor/scalable \
+        /usr/share/icons/breeze \
+        /usr/share/icons/breeze-dark \
+        /usr/share/pixmaps; do
+        if [ -f "$candidate/status/fcitx-skey.svg" ] || [ -f "$candidate/apps/fcitx-skey.svg" ] || [ -f "$candidate/fcitx-skey.svg" ]; then
+            ICON_SRC="$candidate"
+            break
+        fi
+    done
+    # Fallback while preserving the existing source structure
+    [ -z "$ICON_SRC" ] && ICON_SRC="/usr/share/icons/hicolor/scalable"
+
     # Detect the REAL user's icon theme (not root's when running via sudo).
     THEME_USER="${SUDO_USER:-$USER}"
     CURRENT_THEME=""
@@ -369,18 +407,18 @@ if [ -f /usr/share/pixmaps/fcitx-skey.png ]; then
             # Install SVG to all common status (tray) sizes
             for size in 22 24 "24@2x" "24@3x" 32; do
                 mkdir -p "$ICONS_BASE/$CURRENT_THEME/status/$size" 2>/dev/null || continue
-                cp /usr/share/icons/hicolor/scalable/status/fcitx-skey.svg \
+                cp "$ICON_SRC"/status/fcitx-skey.svg \
                    "$ICONS_BASE/$CURRENT_THEME/status/$size/fcitx-skey.svg" 2>/dev/null || true
             done
             # Install SVG to all common apps sizes
             for size in 32 48 "48@2x" 128; do
                 mkdir -p "$ICONS_BASE/$CURRENT_THEME/apps/$size" 2>/dev/null || continue
-                cp /usr/share/icons/hicolor/scalable/apps/fcitx-skey.svg \
+                cp "$ICON_SRC"/apps/fcitx-skey.svg \
                    "$ICONS_BASE/$CURRENT_THEME/apps/$size/fcitx-skey.svg" 2>/dev/null || true
             done
             # Also copy scalable SVG for generic lookups
             mkdir -p "$ICONS_BASE/$CURRENT_THEME/scalable/apps" 2>/dev/null || true
-            cp /usr/share/icons/hicolor/scalable/apps/fcitx-skey.svg \
+            cp "$ICON_SRC"/apps/fcitx-skey.svg \
                "$ICONS_BASE/$CURRENT_THEME/scalable/apps/fcitx-skey.svg" 2>/dev/null || true
             echo "✓ Icon installed to theme: $CURRENT_THEME ($ICONS_BASE)"
             break
@@ -390,7 +428,38 @@ fi
 
 echo ""
 echo "Done! skey is now the default Vietnamese input method."
-echo "Toggle with Ctrl+Space. Settings: fcitx5-configtool"
+echo "Toggle with Ctrl+Space."
+echo ""
+
+# Per-distro install / update instructions
+case "$DISTRO" in
+    fedora)
+        echo "→ Install:  curl -fsSL https://collyn.github.io/skey/install-fedora.sh | sudo bash"
+        echo "→ Or:       sudo dnf install fcitx5-skey"
+        echo "→ Frontends: sudo dnf install fcitx5-gtk fcitx5-qt"
+        ;;
+    opensuse)
+        echo "→ Install:  curl -fsSL https://collyn.github.io/skey/install-opensuse.sh | sudo bash"
+        echo "→ Or:       sudo zypper install fcitx5-skey"
+        echo "→ Frontends: sudo zypper install fcitx5-gtk"
+        ;;
+    arch)
+        echo "→ Install:  curl -fsSL https://collyn.github.io/skey/install-arch.sh | sudo bash"
+        echo "→ Or:       sudo pacman -S fcitx5-skey"
+        echo "→ Frontends: sudo pacman -S fcitx5-gtk fcitx5-qt"
+        ;;
+    debian|ubuntu|linuxmint|pop|*)
+        echo "→ Install:  curl -fsSL https://collyn.github.io/skey/install.sh | sudo bash"
+        echo "→ Or:       sudo apt install fcitx5-skey"
+        echo "→ Frontends: sudo apt install fcitx5-frontend-gtk3 fcitx5-frontend-qt5"
+        ;;
+esac
+echo ""
+echo "  Settings GUI: fcitx5-skey-settings"
+echo "  Logs:         tail -f /tmp/skey.log"
+echo ""
+echo "  Uinput server: systemctl status fcitx5-skey-uinput-server@\$USER.service"
+echo "  (may need sudo/polkit on non-Debian systems — see above)"
 echo ""
 if [ "$XDG_SESSION_TYPE" = "wayland" ]; then
     echo "⚠  Wayland note: If some apps still don't work after this,"

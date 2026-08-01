@@ -111,8 +111,9 @@ gpg --yes --clearsign \
     "dists/stable/Release"
 
 # ── Export public key ──────────────────────────────────────────────────
-echo "→ Exporting public key..."
+echo "→ Exporting public keys..."
 gpg --export --armor "$GPG_KEY_EMAIL" > "key.asc"
+gpg --export "$GPG_KEY_EMAIL" > "key.gpg"
 
 # ── Generate install.sh ───────────────────────────────────────────────
 echo "→ Generating install.sh..."
