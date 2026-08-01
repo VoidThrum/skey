@@ -1253,6 +1253,15 @@ bool SKeyState::handlePendingUinputBackspace(KeyEvent &keyEvent) {
   if (!keyEvent.key().check(FcitxKey_BackSpace) ||
       expectedUinputBackspaces_ == 0) {
     auto sym = keyEvent.key().sym();
+
+    // Escape sent by our own uinput server (flags=1) must pass
+    // through to Chrome — don't filter it.  It dismisses Chrome
+    // inline autocomplete without deleting any characters, which
+    // extra BS would incorrectly do.
+    if (sym == FcitxKey_Escape) {
+      SKEY_DEBUG() << "Uinput: pass Escape to app (autocomplete dismiss)";
+      return true;  // pass through (no filterAndAccept)
+    }
     if (inChromiumAddressBar() && addrBarLastTriggerKey_ != 0 &&
         now(CLOCK_MONOTONIC) < addrBarTriggerDeadline_ &&
         sym == static_cast<uint32_t>(addrBarLastTriggerKey_)) {
@@ -1766,6 +1775,9 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
         addrBarKeepState_ = false;
         viet_.reset();
         committedLen_ = 0;
+        // FullReplace word was deleted; re-enable for retype so
+        // Chrome autocomplete doesn't consume the first BS.
+        addrBarHadFirstWord_ = false;
         return;
       }
       // After a keep-state fullReplace (single-char tone/diacritic
@@ -1777,6 +1789,12 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
         addrBarKeepState_ = false;
         viet_.reset();
         committedLen_ = 0;
+        // Re-enable fullReplace for the next word.  The keep-state
+        // word was committed and is now deleted; Chrome may re-show
+        // autocomplete when the user retypes.  The addrBarHadSpace_
+        // guard in fullReplace prevents extra BS from damaging
+        // multi-word text when surrounding text is unavailable.
+        addrBarHadFirstWord_ = false;
         return;
       }
       viet_.backspace();
@@ -1925,6 +1943,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
     if (inChromiumAddressBar()) {
       addrBarExpectCycle_ = true;
       if (committedLen_ == 0) {
+        addrBarHadFirstWord_ = false;
         // First idle BS after committed word: reclaim was armed above.
         // Track subsequent BS so we can cancel reclaim.
         committedLen_ = -1;
@@ -2383,6 +2402,13 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
       if (surrounding.isValid()) {
         hasTextBefore = surrounding.cursor() >
                         static_cast<unsigned int>(oldComposedLen);
+      } else if (addrBarHadSpace_) {
+        // No SurroundingText available (Uinput mode) but we know
+        // text exists before the cursor because a space was typed
+        // earlier.  FullReplace would send oldComposedLen+1 BS,
+        // and the extra BS would delete the space (or a char from
+        // the previous word), joining/corrupting multi-word text.
+        hasTextBefore = true;
       }
       if (!hasTextBefore) {
         totalBs = oldComposedLen + 1;
@@ -2407,11 +2433,18 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
     // Sync BS handler uses this to restore committedLen_ after BS
     // pass-through decrements it (same as general uinput path).
     uinputPendingFinalLen_ = static_cast<int>(utf8::length(fullComposed));
-    sendBackspaceUinput(totalBs + 1);  // +1 sync BS
+    // When fullReplace didn't modify totalBs (non-first-word after
+    // space, or addrBarHadSpace_ guard active), send Escape before
+    // BS to dismiss Chrome inline autocomplete.  Escape deletes
+    // nothing — it only dismisses autocomplete — so it cannot
+    // corrupt multi-word text like an extra BS would.
+    // FullReplace handles autocomplete via its oldComposedLen+1 BS.
+    uint32_t uinputFlags = (totalBs == bs) ? 1 : 0;
     expectedUinputBackspaces_ = totalBs;
     seenUinputBackspaces_ = 0;
     pendingUinputCommit_ = commitText;
     uinputDeleting_ = true;
+    sendBackspaceUinput(totalBs + 1, "", uinputFlags);  // +1 sync BS
     // Safety: force-commit if BS events are lost
     uinputSafetyTimer_ = engine_->instance()->eventLoop().addTimeEvent(
         CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + uinputTiming().safetyTimeoutUsec, 0,
