@@ -46,18 +46,19 @@ jobs:
 
   # ── Fedora / openSUSE (.rpm) ────────────────────────────────────────────
   build-rpm:
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
           - distro: fedora
-            image: fedora:42
+            image: fedora:40
             install: |
               dnf install -y cmake extra-cmake-modules fcitx5-devel fcitx5 \
                 dbus-devel gettext gcc-c++ make rust cargo \
                 qt6-qtbase-devel librsvg2-tools \
                 rpm-build rpm-sign gpg createrepo_c
           - distro: opensuse
-            image: opensuse/tumbleweed
+            image: opensuse/leap:15.6
             install: |
               zypper --non-interactive install cmake extra-cmake-modules \
                 fcitx5-devel fcitx5 dbus-1-devel gettext gcc-c++ make rust cargo \
@@ -112,6 +113,7 @@ jobs:
 
   # ── Arch Linux (.pkg.tar.zst) ───────────────────────────────────────────
   build-arch:
+    runs-on: ubuntu-latest
     container:
       image: archlinux:latest
       options: --privileged  # needed for makepkg fakeroot
@@ -216,7 +218,7 @@ jobs:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     container:
-      image: fedora:42
+      image: fedora:40
 
     steps:
       - name: Checkout repository
