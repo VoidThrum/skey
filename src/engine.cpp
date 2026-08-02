@@ -1579,6 +1579,17 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
     return;
   }
 
+  // Password fields & lock/login screens (incl. sudo password prompts
+  // in terminals): pass keys through unmodified.
+  // Two detection paths: CapabilityFlag::PasswordOrSensitive (Wayland) and
+  // AT-SPI2 accessibility monitor (X11 fallback).
+  if (!modeMenuActive_ &&
+      (ic_->capabilityFlags().test(CapabilityFlag::PasswordOrSensitive) ||
+       (engine_->a11yMonitor() &&
+        engine_->a11yMonitor()->isPasswordFocused()))) {
+    return;
+  }
+
   // Chromium address bar set to "No Vietnamese" — pass keys through so the
   // user types plain ASCII in the URL bar (web content is unaffected).
   if (!modeMenuActive_ &&

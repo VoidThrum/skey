@@ -10,6 +10,7 @@
 // AT-SPI2 role constants (from atspi-constants.h)
 static constexpr int ROLE_DOCUMENT_WEB = 95;
 static constexpr int ROLE_DOCUMENT_FRAME = 82;
+static constexpr int ROLE_PASSWORD_TEXT = 40;
 // Chromium may emit a focus event for a nested accessibility node inside a
 // contenteditable control. Facebook comments currently reach DOCUMENT_WEB at
 // depth 22, so 20 incorrectly classifies that event as browser chrome.
@@ -529,7 +530,12 @@ void A11yMonitor::threadFunc() {
                     bool isUI = !hasDocWeb;
                     browserUIFocused_.store(isUI,
                                            std::memory_order_relaxed);
-                    A11Y_LOG("Focus: browserUI=%d path=%s", isUI, path);
+                    // Also check if this is a password field
+                    int role = queryRole(bus, sender, path);
+                    passwordFocused_.store(role == ROLE_PASSWORD_TEXT,
+                                          std::memory_order_relaxed);
+                    A11Y_LOG("Focus: browserUI=%d password=%d role=%d path=%s",
+                             isUI, role == ROLE_PASSWORD_TEXT, role, path);
                 }
             }
 

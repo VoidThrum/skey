@@ -28,6 +28,11 @@ public:
         return browserUIFocused_.load(std::memory_order_relaxed);
     }
 
+    /// Returns true if the currently focused element is a password field.
+    bool isPasswordFocused() const {
+        return passwordFocused_.load(std::memory_order_relaxed);
+    }
+
     /// Returns true if the monitor is connected and running.
     bool isRunning() const {
         return running_.load(std::memory_order_relaxed);
@@ -45,6 +50,7 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> stopRequested_{false};
     std::atomic<bool> browserUIFocused_{false};
+    std::atomic<bool> passwordFocused_{false};
     std::atomic<bool> debug_{false};
 };
 
