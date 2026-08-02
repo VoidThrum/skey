@@ -181,6 +181,7 @@ else
 Package: fcitx5-skey
 File: rpm/${DISTRO}/${RPM_NAME}"
     echo "→ Pushing to gh-pages..."
+    git pull --rebase origin gh-pages 2>/dev/null || git fetch origin gh-pages --depth=2 && git merge origin/gh-pages -m "Merge gh-pages"
     git push origin gh-pages
     echo "✓ Published to RPM repository (${DISTRO})!"
 fi
