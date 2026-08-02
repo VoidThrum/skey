@@ -183,7 +183,12 @@ Package: fcitx5-skey
 File: rpm/${DISTRO}/${RPM_NAME}"
     echo "→ Pushing to gh-pages..."
     if git fetch origin gh-pages 2>/dev/null; then
-      git rebase FETCH_HEAD 2>/dev/null || git merge FETCH_HEAD --allow-unrelated-histories --no-edit 2>/dev/null || true
+      git reset --soft FETCH_HEAD 2>/dev/null
+      git add -A
+      git commit -m "Add ${RPM_NAME} to RPM repository (${DISTRO})
+
+Package: fcitx5-skey
+File: rpm/${DISTRO}/${RPM_NAME}" || true
     fi
     git push origin gh-pages
     echo "✓ Published to RPM repository (${DISTRO})!"

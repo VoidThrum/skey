@@ -162,7 +162,12 @@ Package: fcitx5-skey
 File: pool/main/f/fcitx5-skey/${DEB_NAME}"
     echo "→ Pushing to gh-pages..."
     if git fetch origin gh-pages 2>/dev/null; then
-      git rebase FETCH_HEAD 2>/dev/null || git merge FETCH_HEAD --allow-unrelated-histories --no-edit 2>/dev/null || true
+      git reset --soft FETCH_HEAD 2>/dev/null
+      git add -A
+      git commit -m "Add ${DEB_NAME} to APT repository
+
+Package: fcitx5-skey
+File: pool/main/f/fcitx5-skey/${DEB_NAME}" || true
     fi
     git push origin gh-pages
     echo "✓ Published to APT repository!"

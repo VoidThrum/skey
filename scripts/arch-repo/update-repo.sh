@@ -147,7 +147,12 @@ Package: fcitx5-skey
 File: arch/x86_64/${PKG_NAME}"
     echo "→ Pushing to gh-pages..."
     if git fetch origin gh-pages 2>/dev/null; then
-      git rebase FETCH_HEAD 2>/dev/null || git merge FETCH_HEAD --allow-unrelated-histories --no-edit 2>/dev/null || true
+      git reset --soft FETCH_HEAD 2>/dev/null
+      git add -A
+      git commit -m "Add ${PKG_NAME} to Arch Linux repository
+
+Package: fcitx5-skey
+File: arch/x86_64/${PKG_NAME}" || true
     fi
     git push origin gh-pages
     echo "✓ Published to Arch Linux repository!"
