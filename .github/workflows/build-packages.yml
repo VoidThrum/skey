@@ -109,6 +109,17 @@ jobs:
           rpmbuild -bb --define "_topdir $HOME/rpmbuild" \
             ~/rpmbuild/SPECS/fcitx5-skey.spec
 
+      - name: Sign RPMs
+        env:
+          APT_GPG_KEY_EMAIL: ${{ secrets.APT_GPG_KEY_EMAIL }}
+        run: |
+          echo "%_signature gpg" > ~/.rpmmacros
+          echo "%_gpg_name ${APT_GPG_KEY_EMAIL}" >> ~/.rpmmacros
+          for rpm in $(find ~/rpmbuild/RPMS -name '*.rpm' -not -name '*.src.rpm'); do
+            echo "Signing: $rpm"
+            rpmsign --addsign "$rpm"
+          done
+
       - name: Find and copy RPMs
         run: |
           # Copy ALL RPMs (main + debuginfo), not just the first one
