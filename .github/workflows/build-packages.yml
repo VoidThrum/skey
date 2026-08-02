@@ -106,7 +106,8 @@ jobs:
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
           export PATH="$HOME/.cargo/bin:$PATH"
-          rpmbuild -bb ~/rpmbuild/SPECS/fcitx5-skey.spec
+          rpmbuild -bb --define "_topdir $HOME/rpmbuild" \
+            ~/rpmbuild/SPECS/fcitx5-skey.spec
 
       - name: Find and rename RPM
         run: |
