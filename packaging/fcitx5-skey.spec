@@ -9,7 +9,7 @@
 #   rpmbuild -bb fcitx5-skey.spec
 
 Name:           fcitx5-skey
-Version:        0.4.4
+Version:        0.4.5
 Release:        1%{?dist}
 Summary:        Vietnamese SKey input method addon for Fcitx5
 

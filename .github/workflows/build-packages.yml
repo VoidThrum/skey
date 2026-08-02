@@ -109,11 +109,15 @@ jobs:
           rpmbuild -bb --define "_topdir $HOME/rpmbuild" \
             ~/rpmbuild/SPECS/fcitx5-skey.spec
 
-      - name: Find and rename RPM
+      - name: Find and copy RPMs
         run: |
-          RPM=$(find ~/rpmbuild/RPMS -name '*.rpm' -not -name '*.src.rpm' | head -1)
-          cp "$RPM" "./"
-          echo "RPM_FILE=$(basename "$RPM")" >> $GITHUB_ENV
+          # Copy ALL RPMs (main + debuginfo), not just the first one
+          find ~/rpmbuild/RPMS -name '*.rpm' -not -name '*.src.rpm' -exec cp {} ./ \;
+          # Verify the main package exists
+          ls -la ./*.rpm
+          # Set RPM_FILE to the main package (not debuginfo) for reference
+          MAIN_RPM=$(find . -maxdepth 1 -name 'fcitx5-skey-[0-9]*.rpm' -not -name '*debug*' | head -1)
+          echo "RPM_FILE=$(basename "$MAIN_RPM")" >> $GITHUB_ENV
 
       - name: Upload RPM artifact
         uses: actions/upload-artifact@v4

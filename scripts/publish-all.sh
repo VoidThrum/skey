@@ -81,8 +81,16 @@ fi
 for rpm in "$ORIG_DIR"/*.rpm; do
     [ -f "$rpm" ] || continue
     case "$rpm" in
-        *fc*|*fedora*) DISTRO="fedora" ;;
-        *) DISTRO="opensuse" ;;
+        *fedora*|*.fc[0-9]*|*.fc[0-9][0-9]*) DISTRO="fedora" ;;
+        *opensuse*|*.suse*|*tumbleweed*) DISTRO="opensuse" ;;
+        *)
+            # Fallback: check if filename contains fedora-like release tag (.fc42, .fc41, etc.)
+            if echo "$rpm" | grep -qE '\.fc[0-9]+\.'; then
+                DISTRO="fedora"
+            else
+                DISTRO="opensuse"
+            fi
+            ;;
     esac
     RPM_DIR="rpm/${DISTRO}"
     echo "→ RPM ($DISTRO): $(basename "$rpm")"
