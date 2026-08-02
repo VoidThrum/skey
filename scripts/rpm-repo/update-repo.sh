@@ -182,12 +182,13 @@ else
 Package: fcitx5-skey
 File: rpm/${DISTRO}/${RPM_NAME}"
     echo "→ Pushing to gh-pages..."
-    git fetch origin gh-pages
-    # Re-apply our commit on top of the latest remote
-    git reset --soft origin/gh-pages 2>/dev/null && git commit -m "Add ${RPM_NAME} to RPM repository (${DISTRO})
+    if git fetch origin gh-pages 2>/dev/null; then
+      git reset --soft FETCH_HEAD 2>/dev/null && \
+        git commit -m "Add ${RPM_NAME} to RPM repository (${DISTRO})
 
 Package: fcitx5-skey
 File: rpm/${DISTRO}/${RPM_NAME}" || true
+    fi
     git push origin gh-pages
     echo "✓ Published to RPM repository (${DISTRO})!"
 fi

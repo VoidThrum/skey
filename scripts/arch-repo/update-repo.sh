@@ -146,11 +146,13 @@ else
 Package: fcitx5-skey
 File: arch/x86_64/${PKG_NAME}"
     echo "→ Pushing to gh-pages..."
-    git fetch origin gh-pages
-    git reset --soft origin/gh-pages 2>/dev/null && git commit -m "Add ${PKG_NAME} to Arch Linux repository
+    if git fetch origin gh-pages 2>/dev/null; then
+      git reset --soft FETCH_HEAD 2>/dev/null && \
+        git commit -m "Add ${PKG_NAME} to Arch Linux repository
 
 Package: fcitx5-skey
 File: arch/x86_64/${PKG_NAME}" || true
+    fi
     git push origin gh-pages
     echo "✓ Published to Arch Linux repository!"
 fi
