@@ -136,10 +136,9 @@ fi
 %{_datadir}/icons/breeze/apps/*/fcitx-skey.svg
 %{_datadir}/icons/breeze-dark/status/*/fcitx-skey.svg
 %{_datadir}/icons/breeze-dark/apps/*/fcitx-skey.svg
-%{_datadir}/pixmaps/fcitx-skey.png
-%{_datadir}/pixmaps/fcitx-skey.svg
+%{_datadir}/pixmaps/fcitx-skey.*
 %{_datadir}/applications/fcitx5-skey-settings.desktop
-%{_unitdir}/fcitx5-skey-uinput-server@.service
+/lib/systemd/system/fcitx5-skey-uinput-server@.service
 %config %{_sysconfdir}/profile.d/fcitx5-skey.sh
 
 %changelog
