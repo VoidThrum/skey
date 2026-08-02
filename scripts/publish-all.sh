@@ -131,7 +131,7 @@ cat > install-fedora.sh << 'INSTEOF'
 #!/bin/bash
 set -e
 echo "Adding fcitx5-skey RPM repository for Fedora..."
-sudo rpm --import GHP_URL/key.gpg
+sudo rpm --import GHP_URL/key.asc
 cat << 'REPO' | sudo tee /etc/yum.repos.d/fcitx5-skey.repo > /dev/null
 [fcitx5-skey]
 name=fcitx5-skey — Vietnamese SKey input method
@@ -139,7 +139,7 @@ baseurl=GHP_URL/rpm/fedora/
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1
-gpgkey=GHP_URL/key.gpg
+gpgkey=GHP_URL/key.asc
 REPO
 echo "✓ Run: sudo dnf install fcitx5-skey"
 INSTEOF
@@ -151,7 +151,7 @@ cat > install-opensuse.sh << 'INSTEOF'
 #!/bin/bash
 set -e
 echo "Adding fcitx5-skey RPM repository for openSUSE..."
-sudo rpm --import GHP_URL/key.gpg
+sudo rpm --import GHP_URL/key.asc
 sudo zypper addrepo --refresh --check --gpgcheck GHP_URL/rpm/opensuse/ fcitx5-skey
 echo "✓ Run: sudo zypper install fcitx5-skey"
 INSTEOF
