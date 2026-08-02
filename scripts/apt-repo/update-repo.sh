@@ -149,7 +149,7 @@ echo "→ Committing changes..."
 git checkout gh-pages 2>/dev/null || true
 
 # ── Stage only the files this repo type owns ──
-git add pool/ dists/ key.asc key.gpg install.sh 2>/dev/null || true
+git add -A
 git config user.email "github-actions[bot]@users.noreply.github.com"
 git config user.name "github-actions[bot]"
 
@@ -162,11 +162,7 @@ Package: fcitx5-skey
 File: pool/main/f/fcitx5-skey/${DEB_NAME}"
     echo "→ Pushing to gh-pages..."
     if git fetch origin gh-pages 2>/dev/null; then
-      git reset --soft FETCH_HEAD 2>/dev/null && \
-        git commit -m "Add ${DEB_NAME} to APT repository
-
-Package: fcitx5-skey
-File: pool/main/f/fcitx5-skey/${DEB_NAME}" || true
+      git rebase FETCH_HEAD 2>/dev/null || git merge FETCH_HEAD --allow-unrelated-histories --no-edit 2>/dev/null || true
     fi
     git push origin gh-pages
     echo "✓ Published to APT repository!"

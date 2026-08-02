@@ -134,7 +134,7 @@ echo "→ Committing changes..."
 git checkout gh-pages 2>/dev/null || true
 
 echo "→ Staging changes..."
-git add arch/ key.asc key.gpg install-arch.sh 2>/dev/null || true
+git add -A
 git config user.email "github-actions[bot]@users.noreply.github.com"
 git config user.name "github-actions[bot]"
 
@@ -147,11 +147,7 @@ Package: fcitx5-skey
 File: arch/x86_64/${PKG_NAME}"
     echo "→ Pushing to gh-pages..."
     if git fetch origin gh-pages 2>/dev/null; then
-      git reset --soft FETCH_HEAD 2>/dev/null && \
-        git commit -m "Add ${PKG_NAME} to Arch Linux repository
-
-Package: fcitx5-skey
-File: arch/x86_64/${PKG_NAME}" || true
+      git rebase FETCH_HEAD 2>/dev/null || git merge FETCH_HEAD --allow-unrelated-histories --no-edit 2>/dev/null || true
     fi
     git push origin gh-pages
     echo "✓ Published to Arch Linux repository!"
