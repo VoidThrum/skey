@@ -53,7 +53,7 @@ SKeyConfig defaultConfig();
 bool reloadFcitx5();
 
 /// Hard-restart fcitx5 (-r -d) and reconnect Wayland compositor.
-/// Use after .deb update when the .so binary has changed.
+/// Use after package update when the .so binary has changed.
 /// Returns true if the restart was attempted.
 bool restartFcitx5();
 

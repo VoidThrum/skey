@@ -7,6 +7,9 @@
 class QNetworkAccessManager;
 class QNetworkReply;
 
+/// Supported Linux distro families for package management.
+enum class Distro { Debian, Fedora, Arch, Unknown };
+
 class Updater : public QObject {
     Q_OBJECT
 public:
@@ -14,6 +17,9 @@ public:
 
     void checkForUpdate();
     void downloadAndInstall(const QString &downloadUrl, const QString &version);
+
+    /// Detect which distro family we're running on.
+    static Distro detectDistro();
 
 signals:
     void updateAvailable(const QString &newVersion,
@@ -23,7 +29,7 @@ signals:
     void checkFailed(const QString &errorMessage);
 
     void downloadProgress(int percent);
-    void downloadFinished(const QString &debPath);
+    void downloadFinished(const QString &packagePath);
     void downloadFailed(const QString &errorMessage);
 
     void installStarted();
@@ -40,7 +46,8 @@ private:
 
     QNetworkReply *checkReply_ = nullptr;
     QNetworkReply *downloadReply_ = nullptr;
-    QString pendingDebPath_;
+    QString pendingPackagePath_;
+    Distro distro_ = Distro::Unknown;
 };
 
 #endif // SKEY_SETTINGS_UPDATER_H

@@ -25,7 +25,7 @@ private slots:
     void onNoUpdate();
     void onCheckFailed(const QString &errorMessage);
     void onDownloadProgress(int percent);
-    void onDownloadFinished(const QString &debPath);
+    void onDownloadFinished(const QString &packagePath);
     void onDownloadFailed(const QString &errorMessage);
     void onInstallStarted();
     void onInstallFinished(bool success, const QString &message);

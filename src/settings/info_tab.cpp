@@ -226,7 +226,7 @@ void InfoTab::onUpdateAvailable(const QString &newVersion,
   }
 
   if (downloadUrl.isEmpty()) {
-    msg += QString::fromUtf8("\n\nKhông tìm thấy file .deb. "
+    msg += QString::fromUtf8("\n\nKhông tìm thấy file cài đặt phù hợp. "
                              "Vui lòng tải thủ công từ GitHub.");
     QMessageBox::information(this, QString::fromUtf8("Có bản cập nhật"), msg);
     return;
@@ -280,7 +280,7 @@ void InfoTab::onDownloadProgress(int percent) {
   statusLabel_->setText(QString::fromUtf8("Đang tải... %1%").arg(percent));
 }
 
-void InfoTab::onDownloadFinished(const QString & /*debPath*/) {
+void InfoTab::onDownloadFinished(const QString & /*packagePath*/) {
   progressBar_->setValue(100);
   statusLabel_->setText(QString::fromUtf8("Tải xong. Đang cài đặt..."));
 }
