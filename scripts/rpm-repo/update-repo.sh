@@ -169,7 +169,8 @@ echo "→ Committing changes..."
 
 git checkout gh-pages 2>/dev/null || true
 
-git add .
+echo "→ Staging changes..."
+git add rpm/ key.asc key.gpg install-fedora.sh install-opensuse.sh 2>/dev/null || true
 git config user.email "github-actions[bot]@users.noreply.github.com"
 git config user.name "github-actions[bot]"
 

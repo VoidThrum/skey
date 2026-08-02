@@ -148,7 +148,8 @@ echo "→ Committing changes..."
 # Ensure we're on gh-pages (important for new branches)
 git checkout gh-pages 2>/dev/null || true
 
-git add .
+# ── Stage only the files this repo type owns ──
+git add pool/ dists/ key.asc key.gpg install.sh 2>/dev/null || true
 git config user.email "github-actions[bot]@users.noreply.github.com"
 git config user.name "github-actions[bot]"
 
