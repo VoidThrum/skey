@@ -102,13 +102,9 @@ jobs:
           sed "s/^Version:.*/Version:        ${{ env.PKG_VERSION }}/" \
             packaging/fcitx5-skey.spec > ~/rpmbuild/SPECS/fcitx5-skey.spec
 
-      - name: Install Rust toolchain (rustup)
+      - name: Install Rust and build RPM
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-      - name: Build RPM
-        run: |
           export PATH="$HOME/.cargo/bin:$PATH"
           rpmbuild -bb ~/rpmbuild/SPECS/fcitx5-skey.spec
 
