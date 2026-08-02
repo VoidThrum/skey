@@ -51,7 +51,7 @@ jobs:
       matrix:
         include:
           - distro: fedora
-            image: fedora:40
+            image: quay.io/fedora/fedora:42
             pre_install: dnf install -y tar git
             install: |
               dnf install -y cmake extra-cmake-modules fcitx5-devel fcitx5 \
