@@ -173,6 +173,12 @@ jobs:
             makepkg -f -e --sign --noconfirm
           '
 
+      - name: Generate repo database
+        env:
+          APT_GPG_KEY_EMAIL: ${{ secrets.APT_GPG_KEY_EMAIL }}
+        run: |
+          sudo -u builder bash -c "export GPGKEY='$APT_GPG_KEY_EMAIL' && repo-add -s -R fcitx5-skey.db.tar.gz ./*.pkg.tar.zst"
+
       - name: Upload Arch artifact
         uses: actions/upload-artifact@v4
         with:
@@ -180,6 +186,8 @@ jobs:
           path: |
             *.pkg.tar.zst
             *.pkg.tar.zst.sig
+            *.db*
+            *.files*
 
   # ── GitHub Release (all artifacts, tag only) ───────────────────────────
   release:
@@ -204,9 +212,9 @@ jobs:
           draft: false
           prerelease: false
 
-  # ── Publish APT repo (gh-pages) ────────────────────────────────────────
-  publish-apt:
-    needs: build-deb
+  # ── Publish all repos to gh-pages (single job, no race) ──────────────────
+  publish:
+    needs: [build-deb, build-rpm, build-arch]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
 
@@ -214,90 +222,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download .deb artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: deb-package
-
-      - name: Import GPG key and publish
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-          APT_GPG_KEY_EMAIL: ${{ secrets.APT_GPG_KEY_EMAIL }}
-        run: |
-          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
-          scripts/apt-repo/update-repo.sh ./*.deb
-
-  # ── Publish RPM repos (gh-pages) ───────────────────────────────────────
-  publish-rpm:
-    needs: publish-apt
-    if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
-    container:
-      image: fedora:40
-
-    steps:
-      - name: Install prerequisites (tar, git)
-        run: dnf install -y tar git
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install createrepo_c
-        run: dnf install -y createrepo_c
-
-      - name: Download RPM artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
 
-      - name: Publish RPM repos
+      - name: Install publishing tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils createrepo-c git
+
+      - name: Import GPG key
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-          APT_GPG_KEY_EMAIL: ${{ secrets.APT_GPG_KEY_EMAIL }}
         run: |
           echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
-          # Fedora RPMs contain .fc in dist tag
-          for rpm in *fc*.rpm; do
-            [ -f "$rpm" ] && bash scripts/rpm-repo/update-repo.sh "$rpm" fedora
-          done
-          # openSUSE RPMs: anything not Fedora
-          for rpm in *.rpm; do
-            case "$rpm" in *fc*|*src*) continue ;; esac
-            [ -f "$rpm" ] && bash scripts/rpm-repo/update-repo.sh "$rpm" opensuse
-          done
 
-  # ── Publish Arch repo (gh-pages) ────────────────────────────────────────
-  publish-arch:
-    needs: publish-rpm
-    if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
-    container:
-      image: archlinux:latest
-
-    steps:
-      - name: Install prerequisites (tar, git)
-        run: |
-          pacman-key --init 2>/dev/null || :
-          pacman -Syu --noconfirm tar git
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install repo tools
-        run: pacman -Syu --noconfirm pacman
-
-      - name: Download Arch artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: arch-package
-
-      - name: Publish Arch repo
+      - name: Publish all repos
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
           APT_GPG_KEY_EMAIL: ${{ secrets.APT_GPG_KEY_EMAIL }}
         run: |
-          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
-          bash scripts/arch-repo/update-repo.sh ./*.pkg.tar.zst
+          bash scripts/publish-all.sh
