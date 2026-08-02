@@ -145,7 +145,8 @@ else
 Package: fcitx5-skey
 File: arch/x86_64/${PKG_NAME}"
     echo "→ Pushing to gh-pages..."
-    git pull --rebase origin gh-pages 2>/dev/null || git fetch origin gh-pages --depth=2 && git merge origin/gh-pages -m "Merge gh-pages"
+    git fetch origin gh-pages --depth=2 2>/dev/null || git fetch origin gh-pages
+    git rebase origin/gh-pages 2>/dev/null || git merge origin/gh-pages --allow-unrelated-histories --no-edit
     git push origin gh-pages
     echo "✓ Published to Arch Linux repository!"
 fi
