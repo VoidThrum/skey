@@ -161,8 +161,11 @@ else
 Package: fcitx5-skey
 File: pool/main/f/fcitx5-skey/${DEB_NAME}"
     echo "→ Pushing to gh-pages..."
-    git fetch origin gh-pages --depth=2 2>/dev/null || git fetch origin gh-pages
-    git rebase origin/gh-pages 2>/dev/null || git merge origin/gh-pages --allow-unrelated-histories --no-edit
+    git fetch origin gh-pages
+    git reset --soft origin/gh-pages 2>/dev/null && git commit -m "Add ${DEB_NAME} to APT repository
+
+Package: fcitx5-skey
+File: pool/main/f/fcitx5-skey/${DEB_NAME}" || true
     git push origin gh-pages
     echo "✓ Published to APT repository!"
 fi
