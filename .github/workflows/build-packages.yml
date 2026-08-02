@@ -61,10 +61,10 @@ jobs:
           - distro: opensuse
             image: opensuse/tumbleweed
             pre_install: |
-              zypper --non-interactive remove busybox-gawk 2>/dev/null || :
-              zypper --non-interactive install tar git gawk
+              zypper --non-interactive install --force-resolution tar git gawk
             install: |
-              zypper --non-interactive install cmake extra-cmake-modules \
+              zypper --non-interactive install --force-resolution \
+                cmake extra-cmake-modules \
                 fcitx5-devel fcitx5 dbus-1-devel gettext gcc-c++ make \
                 qt6-base-devel rsvg-convert \
                 rpm-build gpg2 createrepo_c
