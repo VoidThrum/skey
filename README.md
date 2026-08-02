@@ -58,16 +58,6 @@ Nếu gõ không được sau khi cài hoặc update, chạy lại:
 skey-setup
 ```
 
-Để gõ tiếng Việt trên các ứng dụng AppImage hoặc ứng dụng chạy qua IBus frontend, thêm vào `~/.profile` (hoặc chạy `skey-setup` để tự động cấu hình):
-
-```bash
-export GTK_IM_MODULE=fcitx
-export QT_IM_MODULE=fcitx
-export XMODIFIERS=@im=fcitx
-export SDL_IM_MODULE=fcitx
-export GLFW_IM_MODULE=ibus
-```
-
 ### Từ file .deb
 
 Tải file `.deb` mới nhất từ [GitHub Releases](https://github.com/collyn/skey/releases):
