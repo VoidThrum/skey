@@ -6,6 +6,10 @@ set(CMAKE_AUTORCC OFF)
 set(SKEY_SOURCES
     engine.cpp
     vietnamese.cpp
+    viet_recompose.cpp
+    viet_undo.cpp
+    viet_fallback.cpp
+    viet_restore.cpp
     charset.cpp
     a11y_monitor.cpp
 )
@@ -38,7 +42,7 @@ add_executable(fcitx5-skey-uinput-server uinput_server.cpp)
 target_compile_features(fcitx5-skey-uinput-server PRIVATE cxx_std_17)
 
 # ── Test executable: Vietnamese typing tests ─────────────────────────────
-add_executable(test_vietnamese test_vietnamese.cpp vietnamese.cpp charset.cpp)
+add_executable(test_vietnamese test_vietnamese.cpp vietnamese.cpp viet_recompose.cpp viet_undo.cpp viet_fallback.cpp viet_restore.cpp charset.cpp)
 target_link_libraries(test_vietnamese bamboo_core pthread dl)
 target_compile_features(test_vietnamese PRIVATE cxx_std_17)
 target_include_directories(test_vietnamese PRIVATE
