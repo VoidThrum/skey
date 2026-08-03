@@ -7,6 +7,7 @@ set(SETTINGS_SOURCES
     settings_window.cpp
     general_tab.cpp
     app_modes_tab.cpp
+    macro_tab.cpp
     info_tab.cpp
     updater.cpp
 )

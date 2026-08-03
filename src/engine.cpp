@@ -654,6 +654,18 @@ void SKeyEngine::setChromiumAddressBarMode(SKeyChromiumAddressBarMode mode) {
   safeSaveAsIni(config_, "conf/skey.conf");
 }
 
+std::string SKeyEngine::lookupMacro(const std::string &key) const {
+  if (key.empty() || macroTable_.empty()) return "";
+  auto it = macroTable_.find(key);
+  if (it != macroTable_.end()) return it->second;
+  // Case-insensitive lookup
+  std::string lower = key;
+  std::transform(lower.begin(), lower.end(), lower.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  it = macroTable_.find(lower);
+  return (it != macroTable_.end()) ? it->second : "";
+}
+
 void SKeyEngine::setInputMethod(SKeyInputMethod method) {
   config_.inputMethod.setValue(method);
   safeSaveAsIni(config_, "conf/skey.conf");
@@ -756,6 +768,51 @@ void SKeyEngine::reloadConfig() {
   g_skeyDebugEnabled = readDebugFromFile();
   if (a11yMonitor_)
     a11yMonitor_->setDebug(g_skeyDebugEnabled);
+
+  // Load macro table
+  {
+    macroTable_.clear();
+    const char *home = getenv("HOME");
+    std::string macroPath = (home ? std::string(home) : "/tmp") +
+                            "/.config/fcitx5/conf/skey-macro.conf";
+    std::ifstream mf(macroPath);
+    if (mf.is_open()) {
+      std::string line;
+      while (std::getline(mf, line)) {
+        // Trim
+        size_t s = line.find_first_not_of(" \t\r\n");
+        if (s == std::string::npos || line[s] == '#') continue;
+        size_t e = line.find_last_not_of(" \t\r\n");
+        line = line.substr(s, e - s + 1);
+        auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = line.substr(0, eq);
+        std::string val = line.substr(eq + 1);
+        // Trim key/val
+        auto trim = [](std::string &str) {
+          size_t a = str.find_first_not_of(" \t");
+          if (a == std::string::npos) { str.clear(); return; }
+          size_t b = str.find_last_not_of(" \t");
+          str = str.substr(a, b - a + 1);
+          // Strip surrounding quotes
+          if (str.size() >= 2 && str.front() == '"' && str.back() == '"')
+            str = str.substr(1, str.size() - 2);
+        };
+        trim(key);
+        trim(val);
+        if (!key.empty() && !val.empty()) {
+          std::string lower = key;
+          std::transform(lower.begin(), lower.end(), lower.begin(),
+                         [](unsigned char c) { return std::tolower(c); });
+          macroTable_[lower] = val;
+        }
+      }
+      if (!macroTable_.empty()) {
+        SKEY_INFO() << "Loaded " << macroTable_.size() << " macro(s)";
+      }
+    }
+  }
+
   std::string modeStr = outputModeName(config_.outputMode.value());
   SKEY_INFO() << "Config: outputMode=" << modeStr
               << " debug(from file)=" << g_skeyDebugEnabled;
@@ -1991,6 +2048,30 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
   // Handle Enter
   if (key.check(FcitxKey_Return) || key.check(FcitxKey_KP_Enter)) {
     if (!viet_.getRawInput().empty()) {
+      // ── Macro / Gõ tắt check ──
+      if (engine_->config().enableMacro.value()) {
+        std::string rawInput = viet_.getRawInput();
+        std::string macroVal = engine_->lookupMacro(rawInput);
+        if (!macroVal.empty()) {
+          if (engine_->config().capitalizeMacro.value() &&
+              !rawInput.empty() && std::isupper(static_cast<unsigned char>(rawInput[0]))) {
+            macroVal[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(macroVal[0])));
+          }
+          SKEY_INFO() << "Macro: '" << rawInput << "' → '" << macroVal << "'";
+          std::string oldComposed = viet_.getComposed();
+          viet_.reset();
+          committedLen_ = 0;
+          if (useSurroundingText()) {
+            surroundingCommit(oldComposed, macroVal);
+          } else {
+            clearUI();
+            commitText(macroVal);
+          }
+          keyEvent.filterAndAccept();
+          return;
+        }
+      }
+      // ── End macro check ──
       saveLastWord();
       if (useSurroundingText()) {
         forceFlushDeferredCommit();
@@ -2007,6 +2088,33 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
   // Handle Space
   if (key.check(FcitxKey_space)) {
     if (!viet_.getRawInput().empty()) {
+      // ── Macro / Gõ tắt check ──
+      if (engine_->config().enableMacro.value()) {
+        std::string rawInput = viet_.getRawInput();
+        std::string macroVal = engine_->lookupMacro(rawInput);
+        if (!macroVal.empty()) {
+          // Capitalize first letter if raw input started with uppercase
+          if (engine_->config().capitalizeMacro.value() &&
+              !rawInput.empty() && std::isupper(static_cast<unsigned char>(rawInput[0]))) {
+            macroVal[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(macroVal[0])));
+          }
+          SKEY_INFO() << "Macro: '" << rawInput << "' → '" << macroVal << "'";
+          std::string oldComposed = viet_.getComposed();
+          viet_.reset();
+          committedLen_ = 0;
+          if (useSurroundingText()) {
+            // Replace preedit text on screen with macro expansion
+            surroundingCommit(oldComposed, macroVal + " ");
+          } else {
+            clearUI();
+            commitText(macroVal);
+            ic_->commitString(" ");
+          }
+          keyEvent.filterAndAccept();
+          return;
+        }
+      }
+      // ── End macro check ──
       saveLastWord();
       if (useSurroundingText()) {
         bool hadDeferred = hasDeferredCommitPending();
@@ -2043,6 +2151,30 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
   // Handle Tab
   if (key.check(FcitxKey_Tab)) {
     if (!viet_.getRawInput().empty()) {
+      // ── Macro / Gõ tắt check ──
+      if (engine_->config().enableMacro.value()) {
+        std::string rawInput = viet_.getRawInput();
+        std::string macroVal = engine_->lookupMacro(rawInput);
+        if (!macroVal.empty()) {
+          if (engine_->config().capitalizeMacro.value() &&
+              !rawInput.empty() && std::isupper(static_cast<unsigned char>(rawInput[0]))) {
+            macroVal[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(macroVal[0])));
+          }
+          SKEY_INFO() << "Macro: '" << rawInput << "' → '" << macroVal << "'";
+          std::string oldComposed = viet_.getComposed();
+          viet_.reset();
+          committedLen_ = 0;
+          if (useSurroundingText()) {
+            surroundingCommit(oldComposed, macroVal);
+          } else {
+            clearUI();
+            commitText(macroVal);
+          }
+          keyEvent.filterAndAccept();
+          return;
+        }
+      }
+      // ── End macro check ──
       saveLastWord();
       if (useSurroundingText()) {
         forceFlushDeferredCommit();

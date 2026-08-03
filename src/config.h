@@ -52,7 +52,13 @@ FCITX_CONFIGURATION(
     Option<SKeyChromiumAddressBarMode> chromiumAddressBarMode{
         this, "ChromiumAddressBarMode",
         _("Thanh địa chỉ Chromium"), SKeyChromiumAddressBarMode::Auto};
-    Option<bool> debug{this, "Debug", _("Ghi log debug"), false};);
+    Option<bool> debug{this, "Debug", _("Ghi log debug"), false};
+
+    Option<bool> enableMacro{this, "EnableMacro", _("Bật gõ tắt"), true};
+    Option<bool> capitalizeMacro{this, "CapitalizeMacro",
+                                 _("Viết hoa macro"), true};
+    Option<bool> macroInOffMode{this, "MacroInOffMode",
+                                _("Gõ tắt cả khi tắt tiếng Việt"), false};);
 
 } // namespace fcitx
 

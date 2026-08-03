@@ -19,6 +19,9 @@ struct SKeyConfig {
     bool showPreedit  = true;
     std::string chromiumAddressBarMode = "Auto";  // "Auto", "Uinput", "Surrounding Text", "Preedit", "No Vietnamese"
     bool debug        = false;
+    bool enableMacro         = true;
+    bool capitalizeMacro     = true;
+    bool macroInOffMode      = false;
 };
 
 /// Per-application mode overrides (maps to skey-app-modes.conf)
@@ -28,14 +31,22 @@ struct AppModesConfig {
     std::vector<std::pair<std::string, std::string>> entries;
 };
 
+/// Macro entry (maps to skey-macro.conf)
+struct MacroConfig {
+    /// Ordered list of (shortcut, expansion) pairs.
+    std::vector<std::pair<std::string, std::string>> entries;
+};
+
 // ── Read helpers ────────────────────────────────────────────────────────
 SKeyConfig      readSkeyConfig();
 AppModesConfig  readAppModesConfig();
+MacroConfig     readMacroConfig();
 std::string     readTriggerKey();     // from [Hotkey/TriggerKeys] in fcitx5 config
 
 // ── Write helpers ───────────────────────────────────────────────────────
 bool writeSkeyConfig(const SKeyConfig &cfg);
 bool writeAppModesConfig(const AppModesConfig &cfg);
+bool writeMacroConfig(const MacroConfig &cfg);
 bool writeTriggerKey(const std::string &fcitx5Key);  // write to [Hotkey/TriggerKeys]/0
 
 // ── Conversion helpers ──────────────────────────────────────────────────

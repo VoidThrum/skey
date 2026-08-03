@@ -19,6 +19,7 @@ std::string configDir() {
 
 static std::string skeyConfPath() { return configDir() + "/skey.conf"; }
 static std::string appModesPath() { return configDir() + "/skey-app-modes.conf"; }
+static std::string macroPath() { return configDir() + "/skey-macro.conf"; }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -88,6 +89,9 @@ SKeyConfig readSkeyConfig() {
         else if (key == "ShowPreedit")  cfg.showPreedit   = parseBool(val);
         else if (key == "ChromiumAddressBarMode") cfg.chromiumAddressBarMode = val;
         else if (key == "Debug")        cfg.debug         = parseBool(val);
+        else if (key == "EnableMacro")   cfg.enableMacro    = parseBool(val);
+        else if (key == "CapitalizeMacro") cfg.capitalizeMacro = parseBool(val);
+        else if (key == "MacroInOffMode")  cfg.macroInOffMode  = parseBool(val);
     }
 
     // Migration: the old "Telex W" input method is now Telex + ShortW.
@@ -122,6 +126,10 @@ bool writeSkeyConfig(const SKeyConfig &cfg) {
     out << "ChromiumAddressBarMode=" << maybeQuote(cfg.chromiumAddressBarMode) << "\n";
     out << "# Enable debug logging"        << "\n";
     out << "Debug="         << boolStr(cfg.debug)           << "\n";
+    out << "# Macro / Gõ tắt"                << "\n";
+    out << "EnableMacro="    << boolStr(cfg.enableMacro)     << "\n";
+    out << "CapitalizeMacro=" << boolStr(cfg.capitalizeMacro) << "\n";
+    out << "MacroInOffMode=" << boolStr(cfg.macroInOffMode)  << "\n";
 
     return out.good();
 }
@@ -164,6 +172,50 @@ bool writeAppModesConfig(const AppModesConfig &cfg) {
 
     for (auto &[name, mode] : cfg.entries) {
         out << name << "=" << mode << "\n";
+    }
+    return out.good();
+}
+
+// ── skey-macro.conf read/write ──────────────────────────────────────────
+
+MacroConfig readMacroConfig() {
+    MacroConfig cfg;
+    std::ifstream in(macroPath());
+    if (!in.is_open()) return cfg;
+
+    std::string line;
+    while (std::getline(in, line)) {
+        rtrim(line);
+        if (line.empty() || line[0] == '#') continue;
+
+        auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+
+        std::string key = line.substr(0, eq);
+        std::string val = line.substr(eq + 1);
+
+        while (!key.empty() && key.front() == ' ') key.erase(0, 1);
+        rtrim(key);
+        rtrim(val);
+        stripQuotes(val);
+
+        if (!key.empty() && !val.empty()) {
+            cfg.entries.emplace_back(key, val);
+        }
+    }
+    return cfg;
+}
+
+bool writeMacroConfig(const MacroConfig &cfg) {
+    std::ofstream out(macroPath());
+    if (!out.is_open()) return false;
+
+    out << "# CatKey Macro / Gõ tắt definitions\n";
+    out << "# Format: shortcut=expansion\n";
+    out << "# Example: dc=\"được\"\n";
+    out << "\n";
+    for (auto &[key, val] : cfg.entries) {
+        out << maybeQuote(key) << "=" << maybeQuote(val) << "\n";
     }
     return out.good();
 }

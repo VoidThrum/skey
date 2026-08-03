@@ -2,6 +2,8 @@
 #define FCITX5_SKEY_ENGINE_H
 
 #include <memory>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <fcitx-utils/event.h>
@@ -213,6 +215,10 @@ public:
     void updateMenuActions();
     A11yMonitor *a11yMonitor() const { return a11yMonitor_.get(); }
 
+    /// Look up a macro expansion by shortcut key.
+    /// Returns empty string if no match.
+    std::string lookupMacro(const std::string &key) const;
+
 private:
     void setupTrayMenu();
 
@@ -239,6 +245,9 @@ private:
 
     // AT-SPI2 accessibility monitor for address bar detection
     std::unique_ptr<A11yMonitor> a11yMonitor_;
+
+    // Macro table: shortcut → expansion (O(1) lookup)
+    std::unordered_map<std::string, std::string> macroTable_;
 };
 
 class SKeyEngineFactory : public AddonFactory {
