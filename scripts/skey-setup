@@ -10,8 +10,39 @@ CONFIG="$CONFIG_DIR/config"
 
 mkdir -p "$CONFIG_DIR"
 
-# ── Write profile: skey-im as default ──
-cat > "$PROFILE" << 'EOF'
+# ── Write profile: skey-im as default (non-destructive) ──
+# Preserve existing profile if it already has skey-im configured.
+# Only create a fresh profile when the file is missing or doesn't
+# contain skey-im at all.  This prevents nuking other IMs (lotus,
+# bamboo, etc.) the user may have configured.
+if [ -f "$PROFILE" ] && grep -q "skey-im" "$PROFILE" 2>/dev/null; then
+    echo "✓ Profile already has skey-im, keeping existing config"
+else
+    if [ -f "$PROFILE" ]; then
+        # Profile exists but has no skey-im — add it as a new item
+        # while preserving existing groups and items.
+        echo "ℹ Adding skey-im to existing profile..."
+        # Find the highest Items/N index and add after it
+        MAX_ITEM=$(grep -oP '\[Groups/0/Items/\K\d+' "$PROFILE" | sort -n | tail -1)
+        NEXT_ITEM=$((MAX_ITEM + 1))
+        cat >> "$PROFILE" << ITEMEOF
+
+[Groups/0/Items/$NEXT_ITEM]
+# Name
+Name=skey-im
+# Layout
+Layout=
+ITEMEOF
+        # Set as default IM
+        if grep -q "^DefaultIM=" "$PROFILE"; then
+            sed -i 's/^DefaultIM=.*/DefaultIM=skey-im/' "$PROFILE"
+        else
+            sed -i '/^Default Layout=/a DefaultIM=skey-im' "$PROFILE"
+        fi
+        echo "✓ skey-im added to existing profile"
+    else
+        # No profile exists — create a fresh one
+        cat > "$PROFILE" << 'EOF'
 [Groups/0]
 # Group Name
 Name=Default
@@ -35,8 +66,9 @@ Layout=
 [GroupOrder]
 0=Default
 EOF
-
-echo "✓ Profile written: skey-im set as default IM"
+        echo "✓ Profile created with skey-im as default IM"
+    fi
+fi
 
 # ── Patch config: ActiveByDefault + ShareInputState ──
 if [ -f "$CONFIG" ]; then
@@ -240,7 +272,53 @@ fi
 upsert_shell_env "$HOME/.xprofile" "$EXPORT_LINES"
 echo "✓ X11 fallback: $HOME/.xprofile"
 
-# Source immediately for current session
+# ── Restart fcitx5 FIRST before touching session environment ──
+# systemd set-environment and dbus-update-activation-environment can
+# briefly disrupt D-Bus service registration.  Restart fcitx5 while
+# the session environment is stable, then update env vars afterwards.
+if pidof fcitx5 > /dev/null 2>&1; then
+    echo "→ Stopping fcitx5..."
+    OLD_PID=$(pidof fcitx5)
+    kill $OLD_PID 2>/dev/null || true
+
+    # Wait for old process to fully exit (up to 5s)
+    for i in $(seq 1 50); do
+        if ! kill -0 $OLD_PID 2>/dev/null; then
+            break
+        fi
+        sleep 0.1
+    done
+
+    # Ensure stale socket files are cleaned up
+    rm -f /tmp/fcitx-socket-* 2>/dev/null || true
+fi
+
+echo "→ Starting fcitx5 daemon..."
+fcitx5 -d 2>&1
+
+# Poll for fcitx5 to be fully ready: D-Bus service registered + active.
+# fcitx5-remote returns 2 when active, 1 when inactive, 0 when not running.
+READY=0
+for i in $(seq 1 50); do
+    STATE=$(fcitx5-remote 2>/dev/null || echo "0")
+    if [ "$STATE" = "2" ]; then
+        READY=1
+        break
+    fi
+    sleep 0.2
+done
+
+if [ "$READY" = "1" ]; then
+    echo "✓ fcitx5 started and active"
+else
+    echo "⚠ WARNING: fcitx5 may not be fully ready yet."
+    echo "  If input is not working, run: fcitx5 -r -d"
+fi
+
+# ── Now update session environment ──
+# fcitx5 is confirmed running before we touch env vars.
+
+# Source immediately for current shell session
 for var in $ENV_VARS; do
     export "${var%%=*}=${var#*=}"
 done
@@ -290,20 +368,14 @@ SNION
     echo "✓ Ensured notificationitem (native SNI tray) is enabled"
 fi
 
-# ── Restart fcitx5 if running ──
+# ── Wayland: re-trigger compositor virtual keyboard binding ──
 # On Wayland, the compositor (KWin/Mutter) connects directly to fcitx5 via
 # zwp_input_method_v2.  When fcitx5 restarts, the compositor does NOT
 # automatically reconnect — the virtual keyboard silently falls back to
 # "None", breaking Vietnamese input until the user manually re-selects
 # fcitx5 in system settings.  We fix this by toggling KWin's VirtualKeyboard
 # enabled property via D-Bus, which forces a protocol reconnect.
-if pidof fcitx5 > /dev/null 2>&1; then
-    fcitx5 -r -d 2>/dev/null &
-    sleep 1  # give fcitx5 time to start and accept D-Bus connections
-    echo "✓ fcitx5 restarted"
-
-    # ── Wayland: re-trigger compositor virtual keyboard binding ──
-    if [ "$XDG_SESSION_TYPE" = "wayland" ]; then
+if [ "$XDG_SESSION_TYPE" = "wayland" ]; then
         case "${XDG_CURRENT_DESKTOP:-}" in
             KDE|kde|KDE-Plasma|plasma)
                 # KWin: toggle VirtualKeyboard enabled via D-Bus to force
@@ -340,9 +412,6 @@ if pidof fcitx5 > /dev/null 2>&1; then
                 ;;
         esac
     fi
-else
-    echo "ℹ fcitx5 is not running. Start it with: fcitx5 -d"
-fi
 
 # ── Uinput server (systemd service) ──
 # The uinput server injects BackSpace/Unicode keystrokes via /dev/uinput.
