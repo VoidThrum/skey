@@ -62,7 +62,11 @@ FCITX_CONFIGURATION(
     SubConfigOption macroEditor{this, "MacroEditor", _("Gõ tắt"),
                                 "fcitx://config/addon/skey/skey-macro"};
     Option<std::string> modeMenuKey{this, "ModeMenuKey",
-                                    _("Phím menu chế độ"), "grave"};);
+                                    _("Phím menu chế độ"), "grave"};
+    Option<std::string> iconTheme{this, "IconTheme",
+                                   _("Biểu tượng"), "default"};
+    Option<std::string> customIconPath{this, "CustomIconPath",
+                                        _("Đường dẫn biểu tượng tùy chỉnh"), ""};);
 
 FCITX_CONFIGURATION(
     skeyMacroEntry,

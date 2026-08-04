@@ -258,6 +258,12 @@ private:
     // Fcitx5 config for macro table (editable in addon settings)
     skeyMacroTableConfig macroTableConfig_;
 
+    // Cached tray/sub-mode icon path + the theme it was resolved from.
+    // Re-resolved automatically when IconTheme changes (no need for explicit
+    // cache invalidation on reloadConfig).
+    std::string iconCachePath_;
+    std::string iconCacheTheme_;
+
     // Reload the O(1) lookup map from the config structure
     void rebuildMacroLookup();
 };

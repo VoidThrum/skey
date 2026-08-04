@@ -3,9 +3,14 @@
 #include <fstream>
 
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QImage>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QString>
+
+#include "../icon_resolver.h"
 
 
 // ── Path resolution ────────────────────────────────────────────────────
@@ -93,6 +98,8 @@ SKeyConfig readSkeyConfig() {
         else if (key == "CapitalizeMacro") cfg.capitalizeMacro = parseBool(val);
         else if (key == "MacroInOffMode")  cfg.macroInOffMode  = parseBool(val);
         else if (key == "ModeMenuKey")   cfg.modeMenuKey    = val;
+        else if (key == "IconTheme")       cfg.iconTheme      = val;
+        else if (key == "CustomIconPath")  cfg.customIconPath = val;
     }
 
     // Migration: the old "Telex W" input method is now Telex + ShortW.
@@ -132,6 +139,10 @@ bool writeSkeyConfig(const SKeyConfig &cfg) {
     out << "CapitalizeMacro=" << boolStr(cfg.capitalizeMacro) << "\n";
     out << "MacroInOffMode=" << boolStr(cfg.macroInOffMode)  << "\n";
     out << "ModeMenuKey="   << maybeQuote(cfg.modeMenuKey)   << "\n";
+    out << "# Icon theme (default / v-blue / v-dark / custom)" << "\n";
+    out << "IconTheme="      << maybeQuote(cfg.iconTheme)      << "\n";
+    out << "# Custom icon path (only when IconTheme=custom)"    << "\n";
+    out << "CustomIconPath=" << maybeQuote(cfg.customIconPath)  << "\n";
     out << "MacroEditor=fcitx://config/addon/skey/skey-macro" << "\n";
 
     return out.good();
@@ -403,4 +414,84 @@ bool restartFcitx5() {
     // All operations are idempotent.
     return QProcess::startDetached(
         "/bin/sh", {"-c", "skey-setup > /dev/null 2>&1"});
+}
+
+// ── Icon resolution / import ─────────────────────────────────────────────
+
+std::string userDataDir() {
+    QString data = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    if (data.isEmpty()) data = QDir::homePath() + "/.local/share";
+    return (data + "/fcitx5").toStdString();
+}
+
+std::string userIconDir() {
+    return userDataDir() + "/skey/icons";
+}
+
+std::vector<std::string> listCustomIcons() {
+    std::vector<std::string> result;
+    QDir dir(QString::fromStdString(userIconDir()));
+    if (!dir.exists()) return result;
+    QStringList filters;
+    filters << "*.png" << "*.svg";
+    for (const auto &fi : dir.entryInfoList(filters, QDir::Files, QDir::Name)) {
+        result.push_back(fi.fileName().toStdString());
+    }
+    return result;
+}
+
+std::string importCustomIcon(const QString &srcPath, const QString &desiredName) {
+    QFileInfo info(srcPath);
+    QString ext = info.suffix().toLower();
+    if (ext != "svg" && ext != "png") return {};
+
+    QDir dir(QString::fromStdString(userIconDir()));
+    if (!dir.exists() && !dir.mkpath(".")) return {};
+
+    // Use desired base name, keeping the source extension
+    QString base = desiredName.isEmpty()
+        ? info.completeBaseName()
+        : QFileInfo(desiredName).completeBaseName();
+    QString dest = dir.filePath(base + "." + ext);
+
+    // Remove stale file with the other extension under the same base name
+    QString other = dir.filePath(base + "." + (ext == "png" ? "svg" : "png"));
+    QFile::remove(other);
+
+    if (ext == "svg") {
+        // SVG: vector, copy as-is
+        if (QFile::exists(dest)) QFile::remove(dest);
+        if (!QFile::copy(srcPath, dest)) return {};
+    } else {
+        // PNG: resize to max 128×128 (tray icons are tiny, don't waste space)
+        QImage img(srcPath);
+        if (img.isNull()) return {};
+        if (img.width() > 128 || img.height() > 128) {
+            img = img.scaled(128, 128, Qt::KeepAspectRatio,
+                             Qt::SmoothTransformation);
+        }
+        if (QFile::exists(dest)) QFile::remove(dest);
+        if (!img.save(dest, "PNG")) return {};
+    }
+
+    return (base + "." + ext).toStdString();  // return just the filename
+}
+
+bool removeCustomIcon(const std::string &filename) {
+    QString path = QString::fromStdString(userIconDir()) + "/"
+                 + QString::fromStdString(filename);
+    return QFile::remove(path);
+}
+
+std::string effectiveIconPath(const SKeyConfig &cfg) {
+    skey::IconSearchPaths paths;
+    paths.userDataDir = userDataDir();
+    // PNG-first for Qt (renders natively without QtSvg plugin)
+    paths.systemDirs = {
+        "/usr/share/icons/hicolor/128x128/apps",
+        "/usr/share/icons/hicolor/scalable/apps",
+        "/usr/share/pixmaps",
+    };
+    paths.fallback = "/usr/share/icons/hicolor/128x128/apps/fcitx-skey.png";
+    return skey::resolveIconPath(cfg.iconTheme, paths);
 }

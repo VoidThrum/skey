@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QIcon>
+#include "config_io.h"
 #include "settings_window.h"
 
 int main(int argc, char *argv[]) {
@@ -12,8 +13,12 @@ int main(int argc, char *argv[]) {
     // the basename of the installed .desktop file without the extension.
     app.setDesktopFileName("fcitx5-skey-settings");
 
-    // Window icon as PNG — works everywhere (Qt renders PNG natively).
-    app.setWindowIcon(QIcon("/usr/share/icons/hicolor/128x128/apps/fcitx-skey.png"));
+    // Window icon — config-driven with fallback to the default 128px PNG.
+    SKeyConfig cfg = readSkeyConfig();
+    QIcon icon(QString::fromStdString(effectiveIconPath(cfg)));
+    if (icon.isNull())
+        icon = QIcon("/usr/share/icons/hicolor/128x128/apps/fcitx-skey.png");
+    app.setWindowIcon(icon);
 
     SkeySettingsWindow window;
     window.show();

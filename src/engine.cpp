@@ -1,9 +1,11 @@
 #include "engine.h"
 
 #include "charset.h"
+#include "icon_resolver.h"
 
 #include <fcitx-config/iniparser.h>
 #include <fcitx-utils/log.h>
+#include <fcitx-utils/standardpaths.h>
 #include <fcitx-utils/utf8.h>
 #include <fcitx/candidatelist.h>
 #include <fcitx/inputcontext.h>
@@ -591,11 +593,23 @@ void SKeyEngine::keyEvent(const InputMethodEntry &entry, KeyEvent &keyEvent) {
 
 void SKeyEngine::activate(const InputMethodEntry &entry,
                           InputContextEvent &event) {
-  FCITX_UNUSED(entry);
   auto *ic = event.inputContext();
 
   // Re-read config to pick up runtime changes (e.g. Debug toggle)
   reloadConfig();
+
+  // Sync the IM entry icon (context menu / IM list) with the current theme.
+  // subModeIconImpl handles the tray indicator, but the addon/IM list icon
+  // comes from InputMethodEntry::icon(), which defaults to the static
+  // Icon= in the .conf file.  Update it whenever the theme changes.
+  std::string currentTheme = config_.iconTheme.value();
+  if (iconCacheTheme_ != currentTheme) {
+    // Force subModeIconImpl to resolve and cache the new path
+    iconCacheTheme_.clear();
+    iconCachePath_.clear();
+    std::string resolved = subModeIconImpl(entry, *ic);
+    const_cast<InputMethodEntry &>(entry).setIcon(resolved);
+  }
 
   // Add tray menu actions (InputMethod group is cleared before activate)
   ic->statusArea().addAction(StatusGroup::InputMethod, &imAction_);
@@ -840,22 +854,28 @@ std::string SKeyEngine::subModeIconImpl(const InputMethodEntry &entry,
   // Return absolute path to bypass XDG icon theme lookup, which fails on
   // many non-Breeze KDE icon themes despite the icon being installed in
   // hicolor and breeze fallback directories.
-  static const std::vector<std::string> candidates = {
-      FCITX_SKEY_ICON_PATH, // compile-time
-      "/usr/share/icons/hicolor/scalable/status/fcitx-skey.svg",
-      "/usr/share/icons/hicolor/scalable/apps/fcitx-skey.svg",
-      "/usr/share/icons/hicolor/48x48/apps/fcitx-skey.png",
+  // Cache keyed on the current IconTheme — re-resolves automatically when
+  // the config value changes (no manual invalidation needed).
+  std::string currentTheme = config_.iconTheme.value();
+  if (iconCacheTheme_ == currentTheme && !iconCachePath_.empty())
+    return iconCachePath_;
+
+  skey::IconSearchPaths paths;
+  // fcitx5's PkgData = "$XDG_DATA_HOME/fcitx5" (~/.local/share/fcitx5)
+  paths.userDataDir = fcitx::StandardPaths::global().userDirectory(
+      fcitx::StandardPathsType::PkgData).string();
+  // SVG-first: DE compositors render SVGs natively for tray icons
+  paths.systemDirs = {
+      "/usr/share/icons/hicolor/scalable/apps",
+      "/usr/share/icons/hicolor/scalable/status",
+      "/usr/share/icons/hicolor/48x48/apps",
+      "/usr/share/pixmaps",
   };
-  static std::string cachedPath;
-  if (cachedPath.empty()) {
-    for (const auto &p : candidates) {
-      if (access(p.c_str(), R_OK) == 0) {
-        cachedPath = p;
-        break;
-      }
-    }
-  }
-  return cachedPath;
+  paths.fallback = FCITX_SKEY_ICON_PATH;  // compile-time default
+
+  iconCacheTheme_ = currentTheme;
+  iconCachePath_ = skey::resolveIconPath(currentTheme, paths);
+  return iconCachePath_;
 }
 
 // ---------------------------------------------------------------------------

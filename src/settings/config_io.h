@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+class QString;
+
 /// Resolved from $XDG_CONFIG_HOME/fcitx5/conf/ (fallback ~/.config/fcitx5/conf/)
 std::string configDir();
 
@@ -29,6 +31,9 @@ struct SKeyConfig {
     bool capitalizeMacro     = true;
     bool macroInOffMode      = false;
     std::string modeMenuKey  = "grave";
+    std::string iconTheme    = "default";  // preset name ("default"/"v-blue"/"v-dark")
+                                           // or custom filename ("my-logo.png")
+    std::string customIconPath = "";       // kept for backward compat; not used by resolver
 };
 
 /// Per-application mode overrides (maps to skey-app-modes.conf)
@@ -74,5 +79,25 @@ bool reloadFcitx5();
 /// Use after package update when the .so binary has changed.
 /// Returns true if the restart was attempted.
 bool restartFcitx5();
+
+// ── Icon resolution / import ─────────────────────────────────────────────
+/// "$XDG_DATA_HOME/fcitx5" (fallback "~/.local/share/fcitx5")
+std::string userDataDir();
+/// "$XDG_DATA_HOME/fcitx5/skey/icons" (fallback "~/.local/share/fcitx5/skey/icons")
+std::string userIconDir();
+
+/// Scan userIconDir() for custom icon files (*.png, *.svg).
+/// Returns a list of filenames (with extensions).
+std::vector<std::string> listCustomIcons();
+
+/// Copy an uploaded image into userIconDir() with the given filename.
+/// Overwrites if file already exists. Returns the stored filename, or "" on failure.
+std::string importCustomIcon(const QString &srcPath, const QString &desiredName);
+
+/// Delete a custom icon file from userIconDir().
+bool removeCustomIcon(const std::string &filename);
+
+/// Resolve the effective icon path for a config (Qt flavour: PNG-first dirs).
+std::string effectiveIconPath(const SKeyConfig &cfg);
 
 #endif // SKEY_SETTINGS_CONFIG_IO_H

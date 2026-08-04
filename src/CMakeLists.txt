@@ -12,6 +12,7 @@ set(SKEY_SOURCES
     viet_restore.cpp
     charset.cpp
     a11y_monitor.cpp
+    icon_resolver.cpp
 )
 
 # Find dbus-1 for AT-SPI2 accessibility monitoring

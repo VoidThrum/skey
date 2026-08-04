@@ -1,5 +1,6 @@
 #include "settings_window.h"
 #include "app_modes_tab.h"
+#include "appearance_tab.h"
 #include "config_io.h"
 #include "general_tab.h"
 #include "info_tab.h"
@@ -27,7 +28,7 @@ SkeySettingsWindow::SkeySettingsWindow(QWidget *parent) : QWidget(parent) {
 
 void SkeySettingsWindow::setupUI() {
   setWindowTitle(QString::fromUtf8("Skey - Tùy chỉnh"));
-  setFixedSize(460, 580);
+  setFixedSize(460, 600);
 
   auto *mainLayout = new QVBoxLayout(this);
   mainLayout->setContentsMargins(12, 12, 12, 12);
@@ -38,10 +39,12 @@ void SkeySettingsWindow::setupUI() {
   generalTab_ = new GeneralTab(this);
   appModesTab_ = new AppModesTab(this);
   macroTab_ = new MacroTab(this);
+  appearanceTab_ = new AppearanceTab(this);
   infoTab_ = new InfoTab(this);
   tabWidget_->addTab(generalTab_, QString::fromUtf8("Chung"));
   tabWidget_->addTab(appModesTab_, QString::fromUtf8("Ứng dụng"));
   tabWidget_->addTab(macroTab_, QString::fromUtf8("Gõ tắt"));
+  tabWidget_->addTab(appearanceTab_, QString::fromUtf8("Giao diện"));
   tabWidget_->addTab(infoTab_, QString::fromUtf8("Info"));
   mainLayout->addWidget(tabWidget_);
 
@@ -100,6 +103,8 @@ void SkeySettingsWindow::loadSettings() {
   macroData.macroInOffMode = cfg.macroInOffMode;
   macroData.entries = macroCfg.entries;
   macroTab_->loadFromConfig(macroData);
+
+  appearanceTab_->loadFromConfig(cfg);
 }
 
 void SkeySettingsWindow::onApply() {
@@ -114,6 +119,10 @@ void SkeySettingsWindow::onApply() {
   cfg.enableMacro = macroData.enableMacro;
   cfg.capitalizeMacro = macroData.capitalizeMacro;
   cfg.macroInOffMode = macroData.macroInOffMode;
+
+  // Merge appearance (icon) fields
+  SKeyConfig appearance = appearanceTab_->collectConfig();
+  cfg.iconTheme = appearance.iconTheme;
 
   MacroConfig macroCfg;
   macroCfg.entries = macroData.entries;
@@ -144,6 +153,7 @@ void SkeySettingsWindow::onDefaults() {
     generalTab_->setDefaults();
     appModesTab_->setDefaults();
     macroTab_->setDefaults();
+    appearanceTab_->setDefaults();
   }
 }
 

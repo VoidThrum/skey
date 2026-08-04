@@ -53,6 +53,27 @@ install(FILES icons/fcitx-skey.svg
     DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/breeze-dark/apps/48"
     RENAME "fcitx-skey.svg")
 
+# ── Preset icons (v-blue, v-dark) — SVG installs (always, no rsvg-convert needed) ──
+foreach(PRESET fcitx-skey-v-blue fcitx-skey-v-dark)
+    # apps/ — app launcher and IM list popup
+    install(FILES icons/${PRESET}.svg
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")
+    # pixmaps/ — last-resort fallback for all DEs, Qt, GTK, KWin
+    install(FILES icons/${PRESET}.svg
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/pixmaps" RENAME "${PRESET}.svg")
+    # status/ — system tray
+    install(FILES icons/${PRESET}.svg
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/status" RENAME "${PRESET}.svg")
+    foreach(CTX breeze breeze-dark)
+        install(FILES icons/${PRESET}.svg
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/${CTX}/status/22" RENAME "${PRESET}.svg")
+        install(FILES icons/${PRESET}.svg
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/${CTX}/status/24" RENAME "${PRESET}.svg")
+        install(FILES icons/${PRESET}.svg
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/${CTX}/apps/48" RENAME "${PRESET}.svg")
+    endforeach()
+endforeach()
+
 # PNG icons for apps/ (launcher, menus) and status/ (system tray)
 find_program(RSVG_CONVERT rsvg-convert)
 if(RSVG_CONVERT)
@@ -86,6 +107,42 @@ if(RSVG_CONVERT)
             DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${SIZE}x${SIZE}/status")
         list(APPEND PNG_ICONS ${PNG_ICON_STATUS})
     endforeach()
+
+    # ── Preset icon PNG generation (rsvg-convert required) ──
+    foreach(PRESET fcitx-skey-v-blue fcitx-skey-v-dark)
+        set(PRESET_SVG "${CMAKE_CURRENT_SOURCE_DIR}/icons/${PRESET}.svg")
+        # 128px pixmaps PNG (last-resort fallback for all DEs)
+        set(PRESET_PIXMAPS_PNG "${CMAKE_CURRENT_BINARY_DIR}/pixmaps/${PRESET}.png")
+        add_custom_command(
+            OUTPUT ${PRESET_PIXMAPS_PNG}
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/pixmaps"
+            COMMAND ${RSVG_CONVERT} -w 128 -h 128 "${PRESET_SVG}" -o ${PRESET_PIXMAPS_PNG}
+            DEPENDS "${PRESET_SVG}"
+            COMMENT "Generating 128x128 pixmaps icon for ${PRESET}"
+        )
+        install(FILES ${PRESET_PIXMAPS_PNG}
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/pixmaps")
+        list(APPEND PNG_ICONS ${PRESET_PIXMAPS_PNG})
+
+        # Hicolor PNGs for DEs that prefer raster icons
+        foreach(SIZE 16 22 24 32 48 128)
+            foreach(CTX apps status)
+                set(PRESET_PNG_OUT "${CMAKE_CURRENT_BINARY_DIR}/icons/hicolor/${SIZE}x${SIZE}/${CTX}/${PRESET}.png")
+                add_custom_command(
+                    OUTPUT ${PRESET_PNG_OUT}
+                    COMMAND ${CMAKE_COMMAND} -E make_directory
+                        "${CMAKE_CURRENT_BINARY_DIR}/icons/hicolor/${SIZE}x${SIZE}/${CTX}"
+                    COMMAND ${RSVG_CONVERT} -w ${SIZE} -h ${SIZE} "${PRESET_SVG}" -o ${PRESET_PNG_OUT}
+                    DEPENDS "${PRESET_SVG}"
+                    COMMENT "Generating ${SIZE}x${SIZE} PNG ${CTX} icon for ${PRESET}"
+                )
+                install(FILES ${PRESET_PNG_OUT}
+                    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${SIZE}x${SIZE}/${CTX}")
+                list(APPEND PNG_ICONS ${PRESET_PNG_OUT})
+            endforeach()
+        endforeach()
+    endforeach()
+
     add_custom_target(skey_icons ALL DEPENDS ${PNG_ICONS})
 else()
     message(WARNING "rsvg-convert not found — PNG tray icons will not be generated")

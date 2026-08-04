@@ -3,6 +3,7 @@
 
 #include <QWidget>
 
+class AppearanceTab;
 class GeneralTab;
 class AppModesTab;
 class MacroTab;
@@ -24,10 +25,11 @@ private:
     void loadSettings();
     void setupUI();
 
-    GeneralTab   *generalTab_;
-    AppModesTab  *appModesTab_;
-    MacroTab     *macroTab_;
-    InfoTab      *infoTab_;
+    AppearanceTab *appearanceTab_;
+    GeneralTab    *generalTab_;
+    AppModesTab   *appModesTab_;
+    MacroTab      *macroTab_;
+    InfoTab       *infoTab_;
     QTabWidget   *tabWidget_;
     QPushButton  *applyButton_;
     QPushButton  *defaultsButton_;

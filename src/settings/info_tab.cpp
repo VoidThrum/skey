@@ -54,7 +54,10 @@ void InfoTab::setupUI() {
   iconLabel->setAlignment(Qt::AlignCenter);
   iconLabel->setStyleSheet(
       "QLabel { border-radius: 12px; background: transparent; }");
-  QIcon icon("/usr/share/icons/hicolor/128x128/apps/fcitx-skey.png");
+  // Config-driven icon with fallback to default 128px PNG
+  QIcon icon(QString::fromStdString(effectiveIconPath(readSkeyConfig())));
+  if (icon.isNull())
+    icon = QIcon("/usr/share/icons/hicolor/128x128/apps/fcitx-skey.png");
   if (!icon.isNull()) {
     qreal dpr = iconLabel->devicePixelRatioF();
     int pxSize = static_cast<int>(80 * dpr);
