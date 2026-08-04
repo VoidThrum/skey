@@ -5,7 +5,12 @@
 
 #include <fcitx-config/iniparser.h>
 #include <fcitx-utils/log.h>
-#include <fcitx-utils/standardpaths.h>
+#include <fcitx-utils/standardpath.h>
+
+// StandardPath is deprecated in favour of StandardPaths in newer fcitx5,
+// but we use it for compatibility with older versions (CI / LTS distros).
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include <fcitx-utils/utf8.h>
 #include <fcitx/candidatelist.h>
 #include <fcitx/inputcontext.h>
@@ -862,8 +867,8 @@ std::string SKeyEngine::subModeIconImpl(const InputMethodEntry &entry,
 
   skey::IconSearchPaths paths;
   // fcitx5's PkgData = "$XDG_DATA_HOME/fcitx5" (~/.local/share/fcitx5)
-  paths.userDataDir = fcitx::StandardPaths::global().userDirectory(
-      fcitx::StandardPathsType::PkgData).string();
+  paths.userDataDir = fcitx::StandardPath::global().userDirectory(
+      fcitx::StandardPath::Type::PkgData);
   // SVG-first: DE compositors render SVGs natively for tray icons
   paths.systemDirs = {
       "/usr/share/icons/hicolor/scalable/apps",
@@ -877,6 +882,8 @@ std::string SKeyEngine::subModeIconImpl(const InputMethodEntry &entry,
   iconCachePath_ = skey::resolveIconPath(currentTheme, paths);
   return iconCachePath_;
 }
+
+#pragma GCC diagnostic pop
 
 // ---------------------------------------------------------------------------
 // SKeyState

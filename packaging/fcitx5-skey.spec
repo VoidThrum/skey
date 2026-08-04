@@ -135,6 +135,25 @@ fi
 %{_datadir}/icons/breeze-dark/status/*/fcitx-skey.svg
 %{_datadir}/icons/breeze-dark/apps/*/fcitx-skey.svg
 %{_datadir}/pixmaps/fcitx-skey.*
+# Preset icons (v-blue, v-dark)
+%{_datadir}/icons/hicolor/scalable/apps/fcitx-skey-v-blue.svg
+%{_datadir}/icons/hicolor/scalable/status/fcitx-skey-v-blue.svg
+%{_datadir}/icons/hicolor/*/apps/fcitx-skey-v-blue.png
+%{_datadir}/icons/hicolor/*/status/fcitx-skey-v-blue.png
+%{_datadir}/icons/breeze/status/*/fcitx-skey-v-blue.svg
+%{_datadir}/icons/breeze/apps/*/fcitx-skey-v-blue.svg
+%{_datadir}/icons/breeze-dark/status/*/fcitx-skey-v-blue.svg
+%{_datadir}/icons/breeze-dark/apps/*/fcitx-skey-v-blue.svg
+%{_datadir}/pixmaps/fcitx-skey-v-blue.*
+%{_datadir}/icons/hicolor/scalable/apps/fcitx-skey-v-dark.svg
+%{_datadir}/icons/hicolor/scalable/status/fcitx-skey-v-dark.svg
+%{_datadir}/icons/hicolor/*/apps/fcitx-skey-v-dark.png
+%{_datadir}/icons/hicolor/*/status/fcitx-skey-v-dark.png
+%{_datadir}/icons/breeze/status/*/fcitx-skey-v-dark.svg
+%{_datadir}/icons/breeze/apps/*/fcitx-skey-v-dark.svg
+%{_datadir}/icons/breeze-dark/status/*/fcitx-skey-v-dark.svg
+%{_datadir}/icons/breeze-dark/apps/*/fcitx-skey-v-dark.svg
+%{_datadir}/pixmaps/fcitx-skey-v-dark.*
 %{_datadir}/applications/fcitx5-skey-settings.desktop
 /lib/systemd/system/fcitx5-skey-uinput-server@.service
 %config %{_sysconfdir}/profile.d/fcitx5-skey.sh
