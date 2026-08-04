@@ -14,10 +14,10 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
+#include <QProcess>
 #include <QPushButton>
+#include <QTemporaryDir>
 #include <QVBoxLayout>
-
-#include <KZip>
 
 GeneralTab::GeneralTab(QWidget *parent) : QWidget(parent) { setupUI(); }
 
@@ -201,43 +201,43 @@ void GeneralTab::setModeMenuKey(const std::string &fcitx5Key) {
 
 void GeneralTab::onBackup() {
   QString defaultName =
-      QString::fromUtf8("skey-backup-%1.zip")
+      QString::fromUtf8("skey-backup-%1.tar.gz")
           .arg(QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss"));
   QString savePath = QFileDialog::getSaveFileName(
       this, QString::fromUtf8("Lưu bản sao lưu cấu hình"),
       QDir::homePath() + "/" + defaultName,
-      QString::fromUtf8("Tệp ZIP (*.zip)"));
+      QString::fromUtf8("Tarball (*.tar.gz)"));
   if (savePath.isEmpty())
     return;
 
-  KZip zip(savePath);
-  if (!zip.open(QIODevice::WriteOnly)) {
-    QMessageBox::warning(
-        this, QString::fromUtf8("Lỗi"),
-        QString::fromUtf8("Không thể tạo tệp sao lưu:\n%1").arg(savePath));
+  // Copy all config files into a temp dir, then tar the dir.
+  // This avoids path complexity — all files land as flat names in the archive.
+  QTemporaryDir tmpDir;
+  if (!tmpDir.isValid()) {
+    QMessageBox::warning(this, QString::fromUtf8("Lỗi"),
+                         QString::fromUtf8("Không thể tạo thư mục tạm."));
     return;
   }
 
   struct {
-    std::string path;
-    const char *name;
+    std::string srcPath;
+    const char *destName;
   } files[] = {
       {skeyConfPath(), "skey.conf"},
       {appModesPath(), "skey-app-modes.conf"},
       {macroPath(), "skey-macro.conf"},
       {fcitx5ConfigPath(), "fcitx5-config"},
   };
-
   for (auto &f : files) {
-    QFile file(QString::fromStdString(f.path));
-    if (file.open(QIODevice::ReadOnly)) {
-      QByteArray data = file.readAll();
-      file.close();
-      zip.writeFile(QString::fromUtf8(f.name), data);
-    }
+    QFile::copy(QString::fromStdString(f.srcPath),
+                tmpDir.path() + "/" + f.destName);
   }
 
-  zip.close();
+  QProcess tar;
+  tar.setWorkingDirectory(tmpDir.path());
+  tar.start("tar", {"-czf", savePath, "."});
+  tar.waitForFinished(10000);
+
   QMessageBox::information(
       this, QString::fromUtf8("Đã sao lưu"),
       QString::fromUtf8("Cấu hình đã được lưu vào:\n%1").arg(savePath));
@@ -254,20 +254,29 @@ void GeneralTab::onRestore() {
 
   QString openPath = QFileDialog::getOpenFileName(
       this, QString::fromUtf8("Chọn tệp sao lưu để khôi phục"),
-      QDir::homePath(), QString::fromUtf8("Tệp ZIP (*.zip)"));
+      QDir::homePath(), QString::fromUtf8("Tarball (*.tar.gz)"));
   if (openPath.isEmpty())
     return;
 
-  KZip zip(openPath);
-  if (!zip.open(QIODevice::ReadOnly)) {
+  QTemporaryDir tmpDir;
+  if (!tmpDir.isValid()) {
+    QMessageBox::warning(this, QString::fromUtf8("Lỗi"),
+                         QString::fromUtf8("Không thể tạo thư mục tạm."));
+    return;
+  }
+
+  QProcess tar;
+  tar.start("tar", {"-xzf", openPath, "-C", tmpDir.path()});
+  tar.waitForFinished(10000);
+  if (tar.exitCode() != 0) {
     QMessageBox::warning(
         this, QString::fromUtf8("Lỗi"),
-        QString::fromUtf8("Không thể mở tệp sao lưu:\n%1").arg(openPath));
+        QString::fromUtf8("Không thể giải nén tệp sao lưu:\n%1").arg(openPath));
     return;
   }
 
   struct {
-    const char *entryName;
+    const char *filename;
     std::string destPath;
   } mappings[] = {
       {"skey.conf", skeyConfPath()},
@@ -277,25 +286,17 @@ void GeneralTab::onRestore() {
   };
 
   bool allOk = true;
-  const KArchiveDirectory *root = zip.directory();
   for (auto &m : mappings) {
-    const KArchiveEntry *entry = root->entry(QString::fromUtf8(m.entryName));
-    if (!entry || !entry->isFile()) {
+    QString src = tmpDir.path() + "/" + m.filename;
+    if (!QFile::exists(src)) {
       allOk = false;
       continue;
     }
-    const KArchiveFile *file = static_cast<const KArchiveFile *>(entry);
-    QByteArray data = file->data();
-    QFile out(QString::fromStdString(m.destPath));
-    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    QFile::remove(QString::fromStdString(m.destPath));
+    if (!QFile::copy(src, QString::fromStdString(m.destPath))) {
       allOk = false;
-      continue;
     }
-    out.write(data);
-    out.close();
   }
-
-  zip.close();
 
   if (!allOk) {
     QMessageBox::warning(this, QString::fromUtf8("Cảnh báo"),
