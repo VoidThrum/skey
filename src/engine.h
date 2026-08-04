@@ -196,6 +196,8 @@ public:
 
     const Configuration *getConfig() const override;
     void setConfig(const RawConfig &config) override;
+    const Configuration *getSubConfig(const std::string &path) const override;
+    void setSubConfig(const std::string &path, const RawConfig &config) override;
     void reloadConfig() override;
 
     std::string subMode(const InputMethodEntry &entry,
@@ -248,6 +250,12 @@ private:
 
     // Macro table: shortcut → expansion (O(1) lookup)
     std::unordered_map<std::string, std::string> macroTable_;
+
+    // Fcitx5 config for macro table (editable in addon settings)
+    skeyMacroTableConfig macroTableConfig_;
+
+    // Reload the O(1) lookup map from the config structure
+    void rebuildMacroLookup();
 };
 
 class SKeyEngineFactory : public AddonFactory {

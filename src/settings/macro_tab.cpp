@@ -97,6 +97,16 @@ void MacroTab::setupUI() {
     connect(addButton_, &QPushButton::clicked, this, &MacroTab::onAdd);
     inputRow->addWidget(addButton_);
 
+    editButton_ = new QPushButton(QString::fromUtf8("Sửa"), this);
+    editButton_->setMinimumWidth(60);
+    editButton_->setEnabled(false);
+    connect(editButton_, &QPushButton::clicked, this, &MacroTab::onEdit);
+    inputRow->addWidget(editButton_);
+
+    // When user clicks a table row, populate input fields for editing
+    connect(table_, &QTableWidget::itemSelectionChanged,
+            this, &MacroTab::onSelectionChanged);
+
     mainLayout->addLayout(inputRow);
     mainLayout->addStretch();
 }
@@ -172,6 +182,81 @@ void MacroTab::onAdd() {
     keyEdit_->setFocus();
 }
 
+void MacroTab::onSelectionChanged() {
+    auto selected = table_->selectionModel()->selectedRows();
+    if (selected.isEmpty()) {
+        editingRow_ = -1;
+        editButton_->setEnabled(false);
+        addButton_->setText(QString::fromUtf8("Thêm"));
+        return;
+    }
+    int row = selected.first().row();
+    editingRow_ = row;
+    editButton_->setEnabled(true);
+    addButton_->setText(QString::fromUtf8("Thêm"));
+
+    // Populate input fields from selected row
+    keyEdit_->setText(table_->item(row, 0)->text());
+    valueEdit_->setText(table_->item(row, 1)->text());
+}
+
+void MacroTab::onEdit() {
+    if (editingRow_ < 0 || editingRow_ >= table_->rowCount()) return;
+
+    std::string key   = keyEdit_->text().trimmed().toStdString();
+    std::string value = valueEdit_->text().trimmed().toStdString();
+
+    if (key.empty() || value.empty()) {
+        QMessageBox::warning(this,
+            QString::fromUtf8("Thiếu thông tin"),
+            QString::fromUtf8("Vui lòng nhập cả từ viết tắt và kết quả."));
+        return;
+    }
+    if (key.size() > kMaxMacroKeyLen) {
+        QMessageBox::warning(this,
+            QString::fromUtf8("Từ viết tắt quá dài"),
+            QString::fromUtf8("Từ viết tắt tối đa %1 ký tự.")
+                .arg(static_cast<int>(kMaxMacroKeyLen)));
+        return;
+    }
+    if (!isValidMacroKey(key)) {
+        QMessageBox::warning(this,
+            QString::fromUtf8("Ký tự không hợp lệ"),
+            QString::fromUtf8("Từ viết tắt chỉ được chứa chữ cái và số."));
+        return;
+    }
+    if (value.size() > kMaxMacroValueLen) {
+        QMessageBox::warning(this,
+            QString::fromUtf8("Kết quả quá dài"),
+            QString::fromUtf8("Kết quả tối đa %1 ký tự.")
+                .arg(static_cast<int>(kMaxMacroValueLen)));
+        return;
+    }
+    // Check duplicate (skip the row being edited)
+    for (int r = 0; r < table_->rowCount(); ++r) {
+        if (r != editingRow_ &&
+            table_->item(r, 0)->text().toStdString() == key) {
+            QMessageBox::warning(this,
+                QString::fromUtf8("Đã tồn tại"),
+                QString::fromUtf8("Từ viết tắt '%1' đã có trong danh sách.")
+                    .arg(QString::fromStdString(key)));
+            return;
+        }
+    }
+
+    // Update the row
+    table_->item(editingRow_, 0)->setText(QString::fromStdString(key));
+    table_->item(editingRow_, 1)->setText(QString::fromStdString(value));
+
+    // Clear editing state
+    editingRow_ = -1;
+    editButton_->setEnabled(false);
+    addButton_->setText(QString::fromUtf8("Thêm"));
+    keyEdit_->clear();
+    valueEdit_->clear();
+    keyEdit_->setFocus();
+}
+
 void MacroTab::onDelete() {
     int row = -1;
     // Find which delete button was pressed
@@ -184,7 +269,17 @@ void MacroTab::onDelete() {
         auto selected = table_->selectionModel()->selectedRows();
         if (!selected.isEmpty()) row = selected.first().row();
     }
-    if (row >= 0) table_->removeRow(row);
+    if (row < 0) return;
+
+    // Clear editing state if deleting the row being edited
+    if (row == editingRow_) {
+        editingRow_ = -1;
+        editButton_->setEnabled(false);
+        addButton_->setText(QString::fromUtf8("Thêm"));
+        keyEdit_->clear();
+        valueEdit_->clear();
+    }
+    table_->removeRow(row);
 }
 
 void MacroTab::loadFromConfig(const MacroTabData &data) {

@@ -28,7 +28,9 @@ public:
 
 private slots:
     void onAdd();
+    void onEdit();
     void onDelete();
+    void onSelectionChanged();
 
 private:
     void setupUI();
@@ -41,6 +43,8 @@ private:
     QLineEdit    *keyEdit_;
     QLineEdit    *valueEdit_;
     QPushButton  *addButton_;
+    QPushButton  *editButton_;
+    int           editingRow_ = -1;  // -1 = no row being edited
 };
 
 #endif // SKEY_SETTINGS_MACRO_TAB_H

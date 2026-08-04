@@ -58,7 +58,20 @@ FCITX_CONFIGURATION(
     Option<bool> capitalizeMacro{this, "CapitalizeMacro",
                                  _("Viết hoa macro"), true};
     Option<bool> macroInOffMode{this, "MacroInOffMode",
-                                _("Gõ tắt cả khi tắt tiếng Việt"), false};);
+                                _("Gõ tắt cả khi tắt tiếng Việt"), false};
+    SubConfigOption macroEditor{this, "MacroEditor", _("Gõ tắt"),
+                                "fcitx://config/addon/skey/skey-macro"};);
+
+FCITX_CONFIGURATION(
+    skeyMacroEntry,
+    Option<std::string> key{this, "Key", _("Từ viết tắt"), ""};
+    Option<std::string> value{this, "Value", _("Thành"), ""};);
+
+FCITX_CONFIGURATION(
+    skeyMacroTableConfig,
+    OptionWithAnnotation<std::vector<skeyMacroEntry>, ListDisplayOptionAnnotation>
+        entries{this, "Entries", _("Danh sách"), {}, {}, {},
+                ListDisplayOptionAnnotation("Key")};);
 
 } // namespace fcitx
 

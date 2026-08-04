@@ -130,6 +130,7 @@ bool writeSkeyConfig(const SKeyConfig &cfg) {
     out << "EnableMacro="    << boolStr(cfg.enableMacro)     << "\n";
     out << "CapitalizeMacro=" << boolStr(cfg.capitalizeMacro) << "\n";
     out << "MacroInOffMode=" << boolStr(cfg.macroInOffMode)  << "\n";
+    out << "MacroEditor=fcitx://config/addon/skey/skey-macro" << "\n";
 
     return out.good();
 }
@@ -183,25 +184,63 @@ MacroConfig readMacroConfig() {
     std::ifstream in(macroPath());
     if (!in.is_open()) return cfg;
 
+    // Fcitx5 format: [Entries/N]\nKey=...\nValue=...
+    // Legacy flat format: key=value (one per line, fallback)
     std::string line;
+    std::string currentKey, currentValue;
+    bool inEntry = false;
+
     while (std::getline(in, line)) {
         rtrim(line);
         if (line.empty() || line[0] == '#') continue;
 
+        // Fcitx5 section: [Entries/N]
+        if (line.size() > 9 && line.compare(0, 9, "[Entries/") == 0) {
+            // Flush previous entry if any
+            if (!currentKey.empty()) {
+                cfg.entries.emplace_back(currentKey, currentValue);
+                currentKey.clear(); currentValue.clear();
+            }
+            inEntry = true;
+            continue;
+        }
+        // Other sections end the entries block
+        if (line[0] == '[') { inEntry = false; continue; }
+
+        if (inEntry) {
+            auto eq = line.find('=');
+            if (eq == std::string::npos) continue;
+            std::string key = line.substr(0, eq);
+            std::string val = line.substr(eq + 1);
+            while (!key.empty() && key.front() == ' ') key.erase(0, 1);
+            rtrim(key);
+            rtrim(val);
+            stripQuotes(val);
+
+            if (key == "Key") {
+                currentKey = val;
+            } else if (key == "Value") {
+                currentValue = val;
+            }
+            continue;
+        }
+
+        // Legacy flat format (no [Entries] section found)
         auto eq = line.find('=');
         if (eq == std::string::npos) continue;
-
         std::string key = line.substr(0, eq);
         std::string val = line.substr(eq + 1);
-
         while (!key.empty() && key.front() == ' ') key.erase(0, 1);
         rtrim(key);
         rtrim(val);
         stripQuotes(val);
-
         if (!key.empty() && !val.empty()) {
             cfg.entries.emplace_back(key, val);
         }
+    }
+    // Flush last entry
+    if (!currentKey.empty()) {
+        cfg.entries.emplace_back(currentKey, currentValue);
     }
     return cfg;
 }
@@ -210,12 +249,12 @@ bool writeMacroConfig(const MacroConfig &cfg) {
     std::ofstream out(macroPath());
     if (!out.is_open()) return false;
 
-    out << "# CatKey Macro / Gõ tắt definitions\n";
-    out << "# Format: shortcut=expansion\n";
-    out << "# Example: dc=\"được\"\n";
+    out << "# Macro / Gõ tắt definitions\n";
     out << "\n";
-    for (auto &[key, val] : cfg.entries) {
-        out << maybeQuote(key) << "=" << maybeQuote(val) << "\n";
+    for (size_t i = 0; i < cfg.entries.size(); ++i) {
+        out << "[Entries/" << std::to_string(i) << "]\n";
+        out << "Key=" << maybeQuote(cfg.entries[i].first) << "\n";
+        out << "Value=" << maybeQuote(cfg.entries[i].second) << "\n";
     }
     return out.good();
 }

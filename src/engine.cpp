@@ -627,9 +627,27 @@ void SKeyEngine::reset(const InputMethodEntry &entry,
   }
 }
 
-void SKeyEngine::save() {}
+void SKeyEngine::save() {
+  safeSaveAsIni(macroTableConfig_, "conf/skey-macro.conf");
+}
 
 const Configuration *SKeyEngine::getConfig() const { return &config_; }
+
+const Configuration *SKeyEngine::getSubConfig(const std::string &path) const {
+  if (path == "skey-macro") {
+    return &macroTableConfig_;
+  }
+  return nullptr;
+}
+
+void SKeyEngine::setSubConfig(const std::string &path,
+                               const RawConfig &config) {
+  if (path == "skey-macro") {
+    macroTableConfig_.load(config, true);
+    safeSaveAsIni(macroTableConfig_, "conf/skey-macro.conf");
+    rebuildMacroLookup();
+  }
+}
 
 void SKeyEngine::setConfig(const RawConfig &config) {
   config_.load(config, true);
@@ -664,6 +682,18 @@ std::string SKeyEngine::lookupMacro(const std::string &key) const {
                  [](unsigned char c) { return std::tolower(c); });
   it = macroTable_.find(lower);
   return (it != macroTable_.end()) ? it->second : "";
+}
+
+void SKeyEngine::rebuildMacroLookup() {
+  macroTable_.clear();
+  for (const auto &entry : *macroTableConfig_.entries) {
+    if (!entry.key->empty() && !entry.value->empty()) {
+      std::string lower = *entry.key;
+      std::transform(lower.begin(), lower.end(), lower.begin(),
+                     [](unsigned char c) { return std::tolower(c); });
+      macroTable_[lower] = *entry.value;
+    }
+  }
 }
 
 void SKeyEngine::setInputMethod(SKeyInputMethod method) {
@@ -769,48 +799,20 @@ void SKeyEngine::reloadConfig() {
   if (a11yMonitor_)
     a11yMonitor_->setDebug(g_skeyDebugEnabled);
 
-  // Load macro table
+  // Load macro table from fcitx5 config system.
+  // Create empty file on first run so configtool discovers the sub-config.
   {
-    macroTable_.clear();
     const char *home = getenv("HOME");
     std::string macroPath = (home ? std::string(home) : "/tmp") +
                             "/.config/fcitx5/conf/skey-macro.conf";
-    std::ifstream mf(macroPath);
-    if (mf.is_open()) {
-      std::string line;
-      while (std::getline(mf, line)) {
-        // Trim
-        size_t s = line.find_first_not_of(" \t\r\n");
-        if (s == std::string::npos || line[s] == '#') continue;
-        size_t e = line.find_last_not_of(" \t\r\n");
-        line = line.substr(s, e - s + 1);
-        auto eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        std::string key = line.substr(0, eq);
-        std::string val = line.substr(eq + 1);
-        // Trim key/val
-        auto trim = [](std::string &str) {
-          size_t a = str.find_first_not_of(" \t");
-          if (a == std::string::npos) { str.clear(); return; }
-          size_t b = str.find_last_not_of(" \t");
-          str = str.substr(a, b - a + 1);
-          // Strip surrounding quotes
-          if (str.size() >= 2 && str.front() == '"' && str.back() == '"')
-            str = str.substr(1, str.size() - 2);
-        };
-        trim(key);
-        trim(val);
-        if (!key.empty() && !val.empty()) {
-          std::string lower = key;
-          std::transform(lower.begin(), lower.end(), lower.begin(),
-                         [](unsigned char c) { return std::tolower(c); });
-          macroTable_[lower] = val;
-        }
-      }
-      if (!macroTable_.empty()) {
-        SKEY_INFO() << "Loaded " << macroTable_.size() << " macro(s)";
-      }
+    if (access(macroPath.c_str(), F_OK) != 0) {
+      safeSaveAsIni(macroTableConfig_, "conf/skey-macro.conf");
     }
+  }
+  readAsIni(macroTableConfig_, "conf/skey-macro.conf");
+  rebuildMacroLookup();
+  if (!macroTable_.empty()) {
+    SKEY_INFO() << "Loaded " << macroTable_.size() << " macro(s)";
   }
 
   std::string modeStr = outputModeName(config_.outputMode.value());
