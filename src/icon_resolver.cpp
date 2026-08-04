@@ -30,11 +30,13 @@ std::string resolveIconPath(const std::string &iconTheme,
                             const IconSearchPaths &paths) {
     const std::string theme = iconTheme.empty() ? kIconThemeDefault : iconTheme;
 
-    // 1. Known preset theme — probe system directories
+    // 1. Known preset theme — probe system directories.
+    //    PNG first: Qt renders PNG natively without plugins; engines with
+    //    SVG-only dirs still get SVG because PNG won't exist there.
     if (isPresetTheme(theme)) {
         const char *base = presetIconBaseName(theme);
         for (const auto &dir : paths.systemDirs) {
-            for (const char *ext : {".svg", ".png"}) {
+            for (const char *ext : {".png", ".svg"}) {
                 std::string p = joinPath(dir, std::string(base) + ext);
                 if (fileReadable(p)) return p;
             }
