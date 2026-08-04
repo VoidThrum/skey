@@ -107,6 +107,8 @@ private:
     mutable bool modeCacheValid_ = false;
     mutable SKeyOutputMode cachedMode_ = SKeyOutputMode::SurroundingText;
     mutable int cachedIsChromium_ = -1;  // tristate: -1=unset, 0=false, 1=true
+    mutable int cachedIsFirefoxOrSnap_ = -1;
+    bool isFirefoxOrSnap() const;
     std::unique_ptr<EventSourceTime> deferredCommitTimer_;
     std::string deferredCommitText_;
     std::string deferredPrefix_;
@@ -127,6 +129,13 @@ private:
     // address bar. Set before sending forwardKey/commitString and
     // cleared after a reactivate or 200ms timeout.
     bool addrBarExpectCycle_ = false;
+    // Set before forwarding a raw key in Uinput mode for Firefox/Snap
+    // apps.  fcitx5 calls reset() after unfiltered keys, which clears
+    // viet_ state.  When set, reset()/deactivate() skip viet_ cleanup
+    // to preserve ongoing composition.  Only used for Firefox/Snap
+    // (non-Chromium) apps — Chromium/Electron need clearUI() D-Bus
+    // and are not affected by this guard.
+    bool uinputKeyForwarded_ = false;
     // KeySym of the key that triggered the current address bar replacement.
     // X11 may re-deliver this key after Chrome's spurious focus cycles;
     // we drop it within a 200ms window to avoid double-processing.

@@ -1104,6 +1104,71 @@ bool SKeyState::isChromiumCached() const {
   return cachedIsChromium_ == 1;
 }
 
+bool SKeyState::isFirefoxOrSnap() const {
+  if (cachedIsFirefoxOrSnap_ >= 0) {
+    return cachedIsFirefoxOrSnap_ == 1;
+  }
+  const std::string &prog = ic_->program();
+  // Firefox program name (native or Snap)
+  if (prog.find("firefox") != std::string::npos) {
+    cachedIsFirefoxOrSnap_ = 1;
+    return true;
+  }
+  // Detect Snap-packaged apps: scan /proc for the process and check
+  // whether its binary lives under /snap/.
+  if (!prog.empty()) {
+    DIR *dir = opendir("/proc");
+    if (dir) {
+      struct dirent *entry;
+      while ((entry = readdir(dir)) != nullptr) {
+        if (entry->d_type != DT_DIR || !isdigit(entry->d_name[0]))
+          continue;
+        std::string commPath = "/proc/" + std::string(entry->d_name) + "/comm";
+        std::ifstream commFile(commPath);
+        if (!commFile.is_open())
+          continue;
+        std::string comm;
+        std::getline(commFile, comm);
+        if (comm == prog || prog.compare(0, 15, comm) == 0 ||
+            comm.compare(0, 15, prog) == 0) {
+          // Found matching process — check exe path for /snap/
+          std::string exePath =
+              "/proc/" + std::string(entry->d_name) + "/exe";
+          char buf[4096];
+          ssize_t len = readlink(exePath.c_str(), buf, sizeof(buf) - 1);
+          if (len > 0) {
+            buf[len] = '\0';
+            std::string exe(buf);
+            if (exe.find("/snap/") != std::string::npos) {
+              closedir(dir);
+              cachedIsFirefoxOrSnap_ = 1;
+              return true;
+            }
+          }
+          // Also check via /proc/PID/maps (some Snap apps use
+          // symlinked launchers where exe doesn't contain /snap/)
+          std::string mapsPath =
+              "/proc/" + std::string(entry->d_name) + "/maps";
+          std::ifstream mapsFile(mapsPath);
+          if (mapsFile.is_open()) {
+            std::string line;
+            if (std::getline(mapsFile, line) &&
+                line.find("/snap/") != std::string::npos) {
+              closedir(dir);
+              cachedIsFirefoxOrSnap_ = 1;
+              return true;
+            }
+          }
+          break; // found matching process but not snap — done
+        }
+      }
+      closedir(dir);
+    }
+  }
+  cachedIsFirefoxOrSnap_ = 0;
+  return false;
+}
+
 bool SKeyState::useNativeSurroundingApi() const {
   // Single effectiveMode() call — avoids double-evaluating detectAutoMode()
   // (which scans /proc via isChromiumBasedApp) on every keystroke.
@@ -1225,6 +1290,7 @@ void SKeyState::activate() {
   // Invalidate mode cache — new focus means caps/program may have changed.
   modeCacheValid_ = false;
   cachedIsChromium_ = -1;
+  cachedIsFirefoxOrSnap_ = -1;
 
   auto caps = ic_->capabilityFlags();
   auto mode = effectiveMode();
@@ -1377,6 +1443,9 @@ bool SKeyState::handlePendingUinputBackspace(KeyEvent &keyEvent) {
     }
     SKEY_DEBUG() << "Uinput: pass BS " << seenUinputBackspaces_ << "/"
                  << expectedUinputBackspaces_;
+    if (isFirefoxOrSnap()) {
+      uinputKeyForwarded_ = true;
+    }
     return true; // forward real BS to app
   }
 
@@ -1435,6 +1504,9 @@ bool SKeyState::handlePendingUinputBackspace(KeyEvent &keyEvent) {
   // ── Commit synchronously ──
   uinputDeleting_ = false;
   if (!commitText.empty()) {
+    if (isFirefoxOrSnap()) {
+      uinputKeyForwarded_ = true;
+    }
     this->commitText(commitText);
   }
   if (uinputPendingFinalLen_ > 0) {
@@ -1567,6 +1639,12 @@ void SKeyState::deactivate() {
     close(uinputClientFd_);
     uinputClientFd_ = -1;
   }
+  // Firefox/Snap: preserve uinput state during spurious deactivate.
+  if (uinputKeyForwarded_ && isFirefoxOrSnap()) {
+    uinputKeyForwarded_ = false;
+    return;
+  }
+
   // Chromium address bar: Chrome sends spurious Reset→Deactivate→
   // Activate cycles. Skip ALL state cleanup if we're expecting a cycle.
   // If no reactivate within 500ms, this is a genuine focus loss → clear flag.
@@ -1620,6 +1698,14 @@ void SKeyState::reset() {
     SKEY_DEBUG() << "Reset: expecting cycle, skip";
     return;
   }
+  // Firefox/Snap apps in Uinput mode: fcitx5 calls reset() after
+  // unfiltered keys.  Skip cleanup to preserve viet_ state for
+  // multi-key composition.  Chromium/Electron apps are NOT affected
+  // — they need the full cleanup (especially clearUI D-Bus).
+  if (uinputKeyForwarded_ && isFirefoxOrSnap()) {
+    uinputKeyForwarded_ = false;
+    return;
+  }
   if (hasDeferredCommitPending()) {
     SKEY_DEBUG() << "Reset: keeping deferred commit";
   }
@@ -1633,6 +1719,7 @@ void SKeyState::reset() {
   }
   modeCacheValid_ = false;
   cachedIsChromium_ = -1;
+  cachedIsFirefoxOrSnap_ = -1;
   clearLastWord();
   clearUI();
 }
@@ -2373,6 +2460,11 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
                 addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) + 50000;
               }
               SKEY_DEBUG() << "Uinput: forward append '" << keyUtf8 << "'";
+              // fcitx5 will call reset() after unfiltered key; the
+              // guard preserves viet_ for Firefox/Snap apps.
+              if (isFirefoxOrSnap()) {
+                uinputKeyForwarded_ = true;
+              }
               return; // forward raw key
             }
 
