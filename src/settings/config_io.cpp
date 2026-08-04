@@ -17,9 +17,9 @@ std::string configDir() {
     return fcitxConf.toStdString();
 }
 
-static std::string skeyConfPath() { return configDir() + "/skey.conf"; }
-static std::string appModesPath() { return configDir() + "/skey-app-modes.conf"; }
-static std::string macroPath() { return configDir() + "/skey-macro.conf"; }
+std::string skeyConfPath() { return configDir() + "/skey.conf"; }
+std::string appModesPath() { return configDir() + "/skey-app-modes.conf"; }
+std::string macroPath() { return configDir() + "/skey-macro.conf"; }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -92,6 +92,7 @@ SKeyConfig readSkeyConfig() {
         else if (key == "EnableMacro")   cfg.enableMacro    = parseBool(val);
         else if (key == "CapitalizeMacro") cfg.capitalizeMacro = parseBool(val);
         else if (key == "MacroInOffMode")  cfg.macroInOffMode  = parseBool(val);
+        else if (key == "ModeMenuKey")   cfg.modeMenuKey    = val;
     }
 
     // Migration: the old "Telex W" input method is now Telex + ShortW.
@@ -130,6 +131,7 @@ bool writeSkeyConfig(const SKeyConfig &cfg) {
     out << "EnableMacro="    << boolStr(cfg.enableMacro)     << "\n";
     out << "CapitalizeMacro=" << boolStr(cfg.capitalizeMacro) << "\n";
     out << "MacroInOffMode=" << boolStr(cfg.macroInOffMode)  << "\n";
+    out << "ModeMenuKey="   << maybeQuote(cfg.modeMenuKey)   << "\n";
     out << "MacroEditor=fcitx://config/addon/skey/skey-macro" << "\n";
 
     return out.good();
@@ -261,7 +263,7 @@ bool writeMacroConfig(const MacroConfig &cfg) {
 
 // ── fcitx5 global config (trigger key) ─────────────────────────────────
 
-static std::string fcitx5ConfigPath() {
+std::string fcitx5ConfigPath() {
     return configDir().substr(0, configDir().rfind("/conf")) + "/config";
 }
 

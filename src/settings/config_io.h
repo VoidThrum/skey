@@ -7,6 +7,12 @@
 /// Resolved from $XDG_CONFIG_HOME/fcitx5/conf/ (fallback ~/.config/fcitx5/conf/)
 std::string configDir();
 
+/// Individual config file paths (exposed for backup/restore)
+std::string skeyConfPath();
+std::string appModesPath();
+std::string macroPath();
+std::string fcitx5ConfigPath();
+
 /// Main Skey configuration (maps to skey.conf)
 struct SKeyConfig {
     std::string inputMethod  = "Telex";       // "Telex", "VNI"
@@ -22,6 +28,7 @@ struct SKeyConfig {
     bool enableMacro         = true;
     bool capitalizeMacro     = true;
     bool macroInOffMode      = false;
+    std::string modeMenuKey  = "grave";
 };
 
 /// Per-application mode overrides (maps to skey-app-modes.conf)

@@ -27,7 +27,7 @@ SkeySettingsWindow::SkeySettingsWindow(QWidget *parent) : QWidget(parent) {
 
 void SkeySettingsWindow::setupUI() {
   setWindowTitle(QString::fromUtf8("Skey - Tùy chỉnh"));
-  setFixedSize(460, 510);
+  setFixedSize(460, 580);
 
   auto *mainLayout = new QVBoxLayout(this);
   mainLayout->setContentsMargins(12, 12, 12, 12);
@@ -78,6 +78,8 @@ void SkeySettingsWindow::setupUI() {
           &SkeySettingsWindow::onDefaults);
   connect(closeButton_, &QPushButton::clicked, this,
           &SkeySettingsWindow::onClose);
+  connect(generalTab_, &GeneralTab::configRestored, this,
+          &SkeySettingsWindow::loadSettings);
 }
 
 void SkeySettingsWindow::loadSettings() {
@@ -88,7 +90,9 @@ void SkeySettingsWindow::loadSettings() {
 
   generalTab_->loadFromConfig(cfg);
   generalTab_->setTriggerKey(trigger);
+  generalTab_->setModeMenuKey(cfg.modeMenuKey);
   appModesTab_->loadFromConfig(appModes);
+  appModesTab_->setChromiumAddressBarMode(cfg.chromiumAddressBarMode);
 
   MacroTabData macroData;
   macroData.enableMacro = cfg.enableMacro;
@@ -104,6 +108,8 @@ void SkeySettingsWindow::onApply() {
   MacroTabData macroData = macroTab_->collectConfig();
   std::string trigger = generalTab_->triggerKey();
 
+  // Merge address bar mode from AppModes tab
+  cfg.chromiumAddressBarMode = appModesTab_->chromiumAddressBarMode();
   // Merge macro bools into main config
   cfg.enableMacro = macroData.enableMacro;
   cfg.capitalizeMacro = macroData.capitalizeMacro;

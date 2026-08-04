@@ -5,6 +5,7 @@
 
 class QTableWidget;
 class QPushButton;
+class QComboBox;
 
 struct AppModesConfig;
 
@@ -17,6 +18,9 @@ public:
     AppModesConfig collectConfig() const;
     void setDefaults();
 
+    std::string chromiumAddressBarMode() const;
+    void setChromiumAddressBarMode(const std::string &mode);
+
 private slots:
     void onAddApp();
     void onDeleteApp();
@@ -27,6 +31,7 @@ private:
 
     QTableWidget *table_;
     QPushButton  *addButton_;
+    QComboBox    *addrBarModeCombo_;
 };
 
 #endif // SKEY_SETTINGS_APP_MODES_TAB_H

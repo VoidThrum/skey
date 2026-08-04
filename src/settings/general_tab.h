@@ -5,6 +5,7 @@
 
 class QComboBox;
 class QCheckBox;
+class QPushButton;
 class HotkeyEdit;
 
 struct SKeyConfig;
@@ -21,6 +22,17 @@ public:
     std::string triggerKey() const;
     void setTriggerKey(const std::string &fcitx5Key);
 
+    std::string modeMenuKey() const;
+    void setModeMenuKey(const std::string &fcitx5Key);
+
+signals:
+    /// Emitted after a config restore so the parent window can reload all tabs.
+    void configRestored();
+
+private slots:
+    void onBackup();
+    void onRestore();
+
 private:
     void setupUI();
 
@@ -28,13 +40,15 @@ private:
     QComboBox *outputModeCombo_;
     QComboBox *charsetCombo_;
     HotkeyEdit *triggerKeyEdit_;
+    HotkeyEdit *modeMenuKeyEdit_;
     QCheckBox *shortWCheck_;
     QCheckBox *bracketUOCheck_;
     QCheckBox *freeMarkingCheck_;
     QCheckBox *autoRestoreCheck_;
     QCheckBox *showPreeditCheck_;
-    QComboBox *addrBarModeCombo_;
     QCheckBox *debugCheck_;
+    QPushButton *backupButton_;
+    QPushButton *restoreButton_;
 };
 
 #endif // SKEY_SETTINGS_GENERAL_TAB_H

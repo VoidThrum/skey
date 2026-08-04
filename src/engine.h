@@ -216,6 +216,7 @@ public:
     bool isAppExcluded(const std::string &app) const;
     void updateMenuActions();
     A11yMonitor *a11yMonitor() const { return a11yMonitor_.get(); }
+    const Key &modeMenuKey() const { return modeMenuKey_; }
 
     /// Look up a macro expansion by shortcut key.
     /// Returns empty string if no match.
@@ -247,6 +248,9 @@ private:
 
     // AT-SPI2 accessibility monitor for address bar detection
     std::unique_ptr<A11yMonitor> a11yMonitor_;
+
+    // Cached mode-menu key parsed from config string (default: grave/backtick `)
+    Key modeMenuKey_;
 
     // Macro table: shortcut → expansion (O(1) lookup)
     std::unordered_map<std::string, std::string> macroTable_;

@@ -799,6 +799,9 @@ void SKeyEngine::reloadConfig() {
   if (a11yMonitor_)
     a11yMonitor_->setDebug(g_skeyDebugEnabled);
 
+  // Parse mode-menu key from config string (default: "grave" = backtick `)
+  modeMenuKey_ = Key(config_.modeMenuKey.value());
+
   // Load macro table from fcitx5 config system.
   // Create empty file on first run so configtool discovers the sub-config.
   {
@@ -1631,7 +1634,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
 
   // App excluded — pass all keys through, except backtick for menu
   if (appExcluded_ && !modeMenuActive_) {
-    if (keyEvent.key().check(FcitxKey_grave) && viet_.getRawInput().empty()) {
+    if (keyEvent.key().check(engine_->modeMenuKey()) && viet_.getRawInput().empty()) {
       showModeMenu();
       keyEvent.filterAndAccept();
     }
@@ -1654,7 +1657,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
   if (!modeMenuActive_ &&
       engine_->config().chromiumAddressBarMode.value() ==
           SKeyChromiumAddressBarMode::NoVietnamese &&
-      inChromiumAddressBar() && !keyEvent.key().check(FcitxKey_grave)) {
+      inChromiumAddressBar() && !keyEvent.key().check(engine_->modeMenuKey())) {
     return;
   }
 
@@ -1783,7 +1786,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
   }
 
   // ── Backtick (`) shows mode switch menu when not composing ──
-  if (key.check(FcitxKey_grave) && viet_.getRawInput().empty() &&
+  if (key.check(engine_->modeMenuKey()) && viet_.getRawInput().empty() &&
       !hasDeferredCommitPending()) {
     showModeMenu();
     keyEvent.filterAndAccept();

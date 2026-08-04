@@ -19,9 +19,11 @@ public:
 protected:
     void keyPressEvent(QKeyEvent *event) override;
     void focusInEvent(QFocusEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
 
 private:
     QString formatModifiers(Qt::KeyboardModifiers mods, int keyCode);
+    QString toDisplayString(const QString &fcitx5Combo) const;
     std::string fcitx5Value_;
 };
 

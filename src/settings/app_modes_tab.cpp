@@ -5,6 +5,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -46,7 +47,7 @@ void AppModesTab::setupUI() {
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setAlternatingRowColors(true);
     table_->verticalHeader()->setVisible(false);
-    mainLayout->addWidget(table_);
+    mainLayout->addWidget(table_, /*stretch=*/1);
 
     // ── Buttons row ──
     auto *btnRow = new QHBoxLayout();
@@ -56,6 +57,27 @@ void AppModesTab::setupUI() {
     mainLayout->addLayout(btnRow);
 
     connect(addButton_, &QPushButton::clicked, this, &AppModesTab::onAddApp);
+
+    // ── Chromium address bar mode (compact footer) ──
+    auto *addrBarRow = new QHBoxLayout();
+    addrBarRow->setSpacing(6);
+    auto *addrBarLabel = new QLabel(
+        QString::fromUtf8("Thanh địa chỉ Chromium:"), this);
+    addrBarLabel->setToolTip(
+        QString::fromUtf8("Chế độ gõ cho thanh địa chỉ Chrome/Edge/Brave.\n"
+                          "Không ảnh hưởng đến nội dung trang web."));
+    addrBarRow->addWidget(addrBarLabel);
+
+    addrBarModeCombo_ = new QComboBox(this);
+    addrBarModeCombo_->addItem("Auto", "Auto");
+    addrBarModeCombo_->addItem("Uinput", "Uinput");
+    addrBarModeCombo_->addItem("Surrounding Text", "Surrounding Text");
+    addrBarModeCombo_->addItem("Preedit", "Preedit");
+    addrBarModeCombo_->addItem(QString::fromUtf8("Không gõ tiếng Việt"),
+                               "No Vietnamese");
+    addrBarRow->addWidget(addrBarModeCombo_);
+
+    mainLayout->addLayout(addrBarRow);
 }
 
 // ── Add a single row to the table ──────────────────────────────────────
@@ -160,6 +182,16 @@ void AppModesTab::onAddApp() {
             addRow(name, mode);
         }
     }
+}
+
+// ── Chromium address bar mode ───────────────────────────────────────────
+std::string AppModesTab::chromiumAddressBarMode() const {
+    return addrBarModeCombo_->currentData().toString().toStdString();
+}
+
+void AppModesTab::setChromiumAddressBarMode(const std::string &mode) {
+    int idx = addrBarModeCombo_->findData(QString::fromStdString(mode));
+    if (idx >= 0) addrBarModeCombo_->setCurrentIndex(idx);
 }
 
 // ── Delete current selection ────────────────────────────────────────────

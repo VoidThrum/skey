@@ -60,7 +60,9 @@ FCITX_CONFIGURATION(
     Option<bool> macroInOffMode{this, "MacroInOffMode",
                                 _("Gõ tắt cả khi tắt tiếng Việt"), false};
     SubConfigOption macroEditor{this, "MacroEditor", _("Gõ tắt"),
-                                "fcitx://config/addon/skey/skey-macro"};);
+                                "fcitx://config/addon/skey/skey-macro"};
+    Option<std::string> modeMenuKey{this, "ModeMenuKey",
+                                    _("Phím menu chế độ"), "grave"};);
 
 FCITX_CONFIGURATION(
     skeyMacroEntry,

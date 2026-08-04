@@ -1,4 +1,5 @@
 find_package(Qt6 REQUIRED COMPONENTS Widgets Core Network DBus)
+find_package(KF6Archive REQUIRED)
 
 set(SETTINGS_SOURCES
     main.cpp
@@ -13,7 +14,7 @@ set(SETTINGS_SOURCES
 )
 
 add_executable(fcitx5-skey-settings ${SETTINGS_SOURCES})
-target_link_libraries(fcitx5-skey-settings PRIVATE Qt6::Widgets Qt6::Core Qt6::Network Qt6::DBus)
+target_link_libraries(fcitx5-skey-settings PRIVATE Qt6::Widgets Qt6::Core Qt6::Network Qt6::DBus KF6::Archive)
 target_compile_features(fcitx5-skey-settings PRIVATE cxx_std_17)
 target_compile_definitions(fcitx5-skey-settings PRIVATE SKEY_VERSION="${PROJECT_VERSION}")
 
