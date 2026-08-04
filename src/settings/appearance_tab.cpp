@@ -2,6 +2,7 @@
 #include "config_io.h"
 #include "../icon_resolver.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QDir>
 #include <QFileDialog>
