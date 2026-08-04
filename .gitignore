@@ -62,7 +62,7 @@ out/
 *.ipch
 .clangd/
 .cache/
-.claude/settings.local.json
+.claude/
 
 # Rust/Cargo
 bamboo/target/
