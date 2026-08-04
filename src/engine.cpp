@@ -1641,6 +1641,7 @@ void SKeyState::deactivate() {
   }
   // Firefox/Snap: preserve uinput state during spurious deactivate.
   if (uinputKeyForwarded_ && isFirefoxOrSnap()) {
+    SKEY_DEBUG() << "Deactivate: Firefox/Snap guard hit, preserving state";
     uinputKeyForwarded_ = false;
     return;
   }
@@ -1694,6 +1695,8 @@ void SKeyState::deactivate() {
 }
 
 void SKeyState::reset() {
+  SKEY_DEBUG() << "Reset: entered uinputFwd=" << uinputKeyForwarded_
+               << " ffSnap=" << isFirefoxOrSnap() << " prog=" << ic_->program();
   if (addrBarExpectCycle_) {
     SKEY_DEBUG() << "Reset: expecting cycle, skip";
     return;
@@ -1703,6 +1706,7 @@ void SKeyState::reset() {
   // multi-key composition.  Chromium/Electron apps are NOT affected
   // — they need the full cleanup (especially clearUI D-Bus).
   if (uinputKeyForwarded_ && isFirefoxOrSnap()) {
+    SKEY_DEBUG() << "Reset: Firefox/Snap guard hit, preserving viet_ state";
     uinputKeyForwarded_ = false;
     return;
   }
