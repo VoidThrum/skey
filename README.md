@@ -27,7 +27,7 @@ SKey (Simple Key) là bộ gõ Tiếng Việt cho Linux trên nền tảng [fcit
 - **Loại trừ ứng dụng (App Exclusion)** — tắt gõ tiếng Việt cho từng ứng dụng qua menu phím tắt `` ` ``.
 - **Gõ tự do (Unikey-style)** — transform hoạt động ở mọi vị trí: `dd→đ`, `oo→ô`, `aa→â`, `ee→ê`, `aw→ă`, `ow→ơ`, `ww/uw→ư`. Viết tắt (`vcđ`, `nđm`, `NĐ`), gõ chữ không dấu rồi thêm dấu sau, đổi dấu liên tục (`x→s→f→x`) đều hoạt động.
 - **Double-tone undo** — bấm cùng phím dấu 2 lần liên tiếp để hiện raw form (vd: `vãi` → `x` → `vaix`).
-- **Auto-restore** — chỉ hoàn nguyên khi kết quả all-ASCII (bamboo tự undo). Transform có ký tự Việt được giữ nguyên giữa chừng, không revert.
+- **Auto-restore** — tự động hoàn nguyên từ không phải tiếng Việt. Hai cơ chế: real-time (all-ASCII, giữa chừng) và commit-time (khi kết thúc từ bằng space/enter/tab/punctuation). Mặc định bật.
 - **Kiểm tra chính tả** — kiểm tra tính hợp lệ âm tiết theo thời gian thực qua bamboo-core.
 - **Free marking** — cho phép đặt dấu tự do, không bó buộc vị trí.
 - **Vị trí dấu thanh:** Kiểu mới (hoà) hoặc kiểu cũ (hòa).
@@ -460,24 +460,58 @@ SKey hỗ trợ gõ tự do kiểu UniKey: tất cả double-letter transform (`
 | Gõ | Kết quả | Mô tả |
 |----|---------|-------|
 | `vcdd` | vcđ | `dd→đ` sau phụ âm |
-| `nđm` | nđm | Viết tắt nhiều chữ |
+| `nddm` | nđm | Viết tắt nhiều chữ |
 | `aloo` | alô | `oo→ô` sau phụ âm |
 | `NDD` | NĐ | Chữ hoa |
 | `xij` + `x` | xĩ | Đổi dấu tại chỗ |
 | `vãi` + `s` + `f` + `x` | vãi | Đổi dấu liên tục, về đúng dấu cũ |
 | `vãi` + `x` + `x` | vaix | Double-tone = undo ra raw form |
+| `reboo` + `t` | rebôt → **Space** | Gõ "reboot": oo→ô tạo "rebôt", ấn Space → auto-restore thành "reboot" |
 
 ### Cách hoạt động auto-restore
 
-Auto-restore chỉ kích hoạt khi bamboo-core trả về kết quả **all-ASCII** (tự undo). Kết quả có ký tự tiếng Việt (ô, â, ê, đ...) được **giữ nguyên** — coi đó là transform có chủ đích của người dùng. Không revert giữa chừng.
+Auto-restore có **hai cơ chế** hoạt động song song, tuân theo triết lý Unikey: transform luôn áp dụng khi gõ, chỉ hoàn nguyên khi chắc chắn không phải tiếng Việt.
 
-| Người dùng gõ | Kết quả | Lý do |
+#### 1. Real-time (all-ASCII, giữa chừng)
+
+Chạy sau mỗi phím gõ trong `maybeAutoRestoreRealTime`. Chỉ kích hoạt khi kết quả **toàn ASCII** — tức bamboo tự undo một transform trước đó (vd: tone-key undo). Các ký tự tiếng Việt (ô, â, ê, đ...) được **giữ nguyên** giữa chừng, vì có thể người dùng đang gõ dở một từ tiếng Việt.
+
+| Người dùng gõ | Kết quả giữa chừng | Lý do |
 |--------------|---------|-------|
-| `address` + `ss` | address | Bamboo undo sắc → `addres` (all-ASCII) → restore |
-| `ook` | ôk | `ô` là ký tự Việt → giữ, không restore |
+| `address` + `ss` | address | Bamboo undo sắc → `addres` (all-ASCII) → restore ngay |
+| `ook` | ôk | `ô` là ký tự Việt → giữ, chưa restore |
 | `vaai` | vâi | `â` là ký tự Việt → giữ |
-| `ddc` | đc | `đ` là ký tự Việt → ddFreeStyle giữ |
-| `wood` | wôd | `ô` là ký tự Việt → giữ (dùng triple-o để undo nếu cần) |
+| `ddc` | đc | `đ` là ký tự Việt → giữ |
+| `wood` | wôd | `ô` là ký tự Việt → giữ |
+
+#### 2. Commit-time (khi kết thúc từ)
+
+Chạy khi người dùng ấn **Space, Enter, Tab, dấu câu, hoặc phím modifier**. Gọi `autoRestore()` — kiểm tra toàn bộ từ đã gõ xong. Nếu từ **không hợp lệ trong tiếng Việt** (theo bamboo `is_valid()`), hoàn nguyên về raw form, **kể cả khi có ký tự Việt**.
+
+| Gõ | Kết quả khi gõ | Sau Space | Lý do |
+|----|---------------|-----------|-------|
+| `reboo` + `t` | rebôt | **reboot** | "rebôt" không valid VN → restore về raw |
+| `world` | wỏld | **world** | "wỏld" không valid VN → restore |
+| `computer` | computẻ | **computer** | "computẻ" không valid VN → restore |
+| `đc` + Space | đc | **ddc** | "đc" không valid VN → restore |
+| `cô` + Space | cô | **cô** | "cô" valid VN → giữ nguyên |
+| `lỗi` + Space | lỗi | **lỗi** | "lỗi" valid VN → giữ nguyên |
+| `nđm` + Space | nđm | **nddm** | "nđm" không valid VN → restore |
+
+> 💡 **Mẹo:** Nếu bạn thường xuyên gõ viết tắt (như `nđm`, `vcđ`), hãy **tắt Auto Restore** trong Settings (`fcitx5-skey-settings` → bỏ chọn "Tự động khôi phục"). Khi tắt, mọi transform được giữ nguyên, không bị hoàn nguyên khi kết thúc từ.
+
+#### Cơ chế undo thủ công
+
+Nếu không muốn dùng auto-restore, bạn luôn có thể **undo thủ công** bằng cách gõ lặp trigger key:
+
+| Gõ | Kết quả | Cơ chế |
+|----|---------|---------|
+| `ooo` | oo | Lặp `o` lần 3 → undo `oo→ô` |
+| `ddd` | dd | Lặp `d` lần 3 → undo `dd→đ` |
+| `aaa` | aa | Lặp `a` lần 3 → undo `aa→â` |
+| `eee` | ee | Lặp `e` lần 3 → undo `ee→ê` |
+
+Undo hoạt động ở mọi vị trí, không phụ thuộc vào auto-restore.
 
 ---
 
@@ -519,7 +553,7 @@ Auto-restore chỉ kích hoạt khi bamboo-core trả về kết quả **all-ASC
 │      │    transforms ở non-start position       │
 │      │  - tone key dedup (cùng key lặp)        │
 │      │  - double-tone undo (xx → raw form)     │
-│      │  - auto-restore (chỉ all-ASCII)         │
+│      │  - auto-restore (real-time + commit-time)│
 │      ▼                                          │
 │  bamboo-core (Rust FFI)                         │
 │  ┌─────────────────────────────────────────┐    │
