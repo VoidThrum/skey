@@ -1930,6 +1930,17 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
   // Pass through modifier keys (except Shift and CapsLock)
   if (key.states() & ~KeyStates({KeyState::Shift, KeyState::CapsLock})) {
     if (!viet_.getRawInput().empty()) {
+      // Auto-restore: when enabled, restore non-Vietnamese words
+      {
+        std::string preRestore = viet_.getComposed();
+        viet_.autoRestore();
+        std::string postRestore = viet_.getComposed();
+        if (preRestore != postRestore && useSurroundingText()) {
+          SKEY_DEBUG() << "AutoRestore: '" << preRestore
+                       << "' -> '" << postRestore << "'";
+          surroundingCommit(preRestore, postRestore);
+        }
+      }
       saveLastWord();
       if (useSurroundingText()) {
         forceFlushDeferredCommit();
@@ -2189,6 +2200,54 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
         }
       }
       // ── End macro check ──
+      // Auto-restore: when enabled, restore non-Vietnamese words
+      // to their raw form at commit time (Unikey-style).
+      bool autoRestored = false;
+      {
+        std::string preRestore = viet_.getComposed();
+        viet_.autoRestore();
+        std::string postRestore = viet_.getComposed();
+        if (preRestore != postRestore && useSurroundingText()) {
+          autoRestored = true;
+          SKEY_DEBUG() << "AutoRestore: '" << preRestore
+                       << "' -> '" << postRestore << "'";
+          if (useUinputMode()) {
+            int oldLen = static_cast<int>(utf8::length(preRestore));
+            sendBackspaceUinput(oldLen + 1);
+            expectedUinputBackspaces_ = oldLen;
+            seenUinputBackspaces_ = 0;
+            pendingUinputCommit_ = postRestore + "\n";
+            uinputPendingFinalLen_ =
+                static_cast<int>(utf8::length(postRestore));
+            uinputDeleting_ = true;
+            committedLen_ = uinputPendingFinalLen_;
+            uinputSafetyTimer_ =
+                engine_->instance()->eventLoop().addTimeEvent(
+                    CLOCK_MONOTONIC,
+                    now(CLOCK_MONOTONIC) + uinputTiming().safetyTimeoutUsec,
+                    0, [this](EventSourceTime *, uint64_t) {
+                      SKEY_DEBUG()
+                          << "AutoRestore: safety timeout, force commit";
+                      uinputSafetyTimer_.reset();
+                      uinputCommitTimer_.reset();
+                      std::string text = std::move(pendingUinputCommit_);
+                      pendingUinputCommit_.clear();
+                      expectedUinputBackspaces_ = 0;
+                      seenUinputBackspaces_ = 0;
+                      uinputDeleting_ = false;
+                      if (!text.empty())
+                        this->commitText(text);
+                      committedLen_ = uinputPendingFinalLen_;
+                      uinputPendingFinalLen_ = 0;
+                      if (!bufferedUinputKeys_.empty())
+                        replayBufferedUinputKeys();
+                      return true;
+                    });
+          } else {
+            surroundingCommit(preRestore, postRestore);
+          }
+        }
+      }
       saveLastWord();
       if (useSurroundingText()) {
         forceFlushDeferredCommit();
@@ -2198,6 +2257,9 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       }
       viet_.reset();
       committedLen_ = 0;
+      if (autoRestored && useUinputMode()) {
+        keyEvent.filterAndAccept();
+      }
     }
     return;
   }
@@ -2233,6 +2295,57 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
         }
       }
       // ── End macro check ──
+      // Auto-restore: when enabled, restore non-Vietnamese words
+      // to their raw form at commit time (Unikey-style).
+      bool autoRestored = false;
+      {
+        std::string preRestore = viet_.getComposed();
+        viet_.autoRestore();
+        std::string postRestore = viet_.getComposed();
+        if (preRestore != postRestore && useSurroundingText()) {
+          autoRestored = true;
+          SKEY_DEBUG() << "AutoRestore: '" << preRestore
+                       << "' -> '" << postRestore << "'";
+          if (useUinputMode()) {
+            // Full replacement via uinput BS + commit.
+            // Include the space in the pending commit so it arrives
+            // AFTER the BS events (avoids race with D-Bus commitString).
+            int oldLen = static_cast<int>(utf8::length(preRestore));
+            sendBackspaceUinput(oldLen + 1); // +1 sync BS
+            expectedUinputBackspaces_ = oldLen;
+            seenUinputBackspaces_ = 0;
+            pendingUinputCommit_ = postRestore + " ";
+            uinputPendingFinalLen_ =
+                static_cast<int>(utf8::length(postRestore));
+            uinputDeleting_ = true;
+            committedLen_ = uinputPendingFinalLen_;
+            uinputSafetyTimer_ =
+                engine_->instance()->eventLoop().addTimeEvent(
+                    CLOCK_MONOTONIC,
+                    now(CLOCK_MONOTONIC) + uinputTiming().safetyTimeoutUsec,
+                    0, [this](EventSourceTime *, uint64_t) {
+                      SKEY_DEBUG()
+                          << "AutoRestore: safety timeout, force commit";
+                      uinputSafetyTimer_.reset();
+                      uinputCommitTimer_.reset();
+                      std::string text = std::move(pendingUinputCommit_);
+                      pendingUinputCommit_.clear();
+                      expectedUinputBackspaces_ = 0;
+                      seenUinputBackspaces_ = 0;
+                      uinputDeleting_ = false;
+                      if (!text.empty())
+                        this->commitText(text);
+                      committedLen_ = uinputPendingFinalLen_;
+                      uinputPendingFinalLen_ = 0;
+                      if (!bufferedUinputKeys_.empty())
+                        replayBufferedUinputKeys();
+                      return true;
+                    });
+          } else {
+            surroundingCommit(preRestore, postRestore);
+          }
+        }
+      }
       saveLastWord();
       if (useSurroundingText()) {
         bool hadDeferred = hasDeferredCommitPending();
@@ -2240,7 +2353,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
           pendingFlushSuffix_ += " ";
         }
         forceFlushDeferredCommit();
-        if (!hadDeferred) {
+        if (!hadDeferred && !(autoRestored && useUinputMode())) {
           ic_->commitString(" ");
         }
         keyEvent.filterAndAccept();
@@ -2294,6 +2407,54 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
         }
       }
       // ── End macro check ──
+      // Auto-restore: when enabled, restore non-Vietnamese words
+      // to their raw form at commit time (Unikey-style).
+      bool autoRestored = false;
+      {
+        std::string preRestore = viet_.getComposed();
+        viet_.autoRestore();
+        std::string postRestore = viet_.getComposed();
+        if (preRestore != postRestore && useSurroundingText()) {
+          autoRestored = true;
+          SKEY_DEBUG() << "AutoRestore: '" << preRestore
+                       << "' -> '" << postRestore << "'";
+          if (useUinputMode()) {
+            int oldLen = static_cast<int>(utf8::length(preRestore));
+            sendBackspaceUinput(oldLen + 1);
+            expectedUinputBackspaces_ = oldLen;
+            seenUinputBackspaces_ = 0;
+            pendingUinputCommit_ = postRestore + "\t";
+            uinputPendingFinalLen_ =
+                static_cast<int>(utf8::length(postRestore));
+            uinputDeleting_ = true;
+            committedLen_ = uinputPendingFinalLen_;
+            uinputSafetyTimer_ =
+                engine_->instance()->eventLoop().addTimeEvent(
+                    CLOCK_MONOTONIC,
+                    now(CLOCK_MONOTONIC) + uinputTiming().safetyTimeoutUsec,
+                    0, [this](EventSourceTime *, uint64_t) {
+                      SKEY_DEBUG()
+                          << "AutoRestore: safety timeout, force commit";
+                      uinputSafetyTimer_.reset();
+                      uinputCommitTimer_.reset();
+                      std::string text = std::move(pendingUinputCommit_);
+                      pendingUinputCommit_.clear();
+                      expectedUinputBackspaces_ = 0;
+                      seenUinputBackspaces_ = 0;
+                      uinputDeleting_ = false;
+                      if (!text.empty())
+                        this->commitText(text);
+                      committedLen_ = uinputPendingFinalLen_;
+                      uinputPendingFinalLen_ = 0;
+                      if (!bufferedUinputKeys_.empty())
+                        replayBufferedUinputKeys();
+                      return true;
+                    });
+          } else {
+            surroundingCommit(preRestore, postRestore);
+          }
+        }
+      }
       saveLastWord();
       if (useSurroundingText()) {
         forceFlushDeferredCommit();
@@ -2303,6 +2464,9 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
       }
       viet_.reset();
       committedLen_ = 0;
+      if (autoRestored && useUinputMode()) {
+        keyEvent.filterAndAccept();
+      }
     }
     return;
   }
@@ -2475,37 +2639,12 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
             // Non-matching: consume key, send BS via uinput,
             // replacement text via commitString with adaptive
             // delay to let the app process uinput BS first.
-            // BUT in the address bar, first check if the transform
-            // produced valid Vietnamese — English words that trigger
-            // tone keys (e.g. "ultr" → "ủlt") should be forwarded raw.
+            // Always apply the Vietnamese transform — Unikey-style
+            // free typing (users undo unwanted transforms manually).
             size_t pfx = commonUtf8PrefixBytes(oldComposed, newComposed);
             std::string delPart = oldComposed.substr(pfx);
             std::string addPart = newComposed.substr(pfx);
             int deleteLen = static_cast<int>(utf8::length(delPart));
-
-            // When the previous text was plain ASCII and the new
-            // Vietnamese transform produces an invalid result, forward
-            // the raw key instead — the user is typing English, not
-            // Vietnamese.  Only skip when oldComposed has 2+ chars:
-            // a single vowel with a tone mark (e→è, a→ả) IS valid
-            // Vietnamese and may be the start of a word like "ảnh" or
-            // "èo".  Applied in all uinput modes, not just the address
-            // bar — English words like "ultr" → "ủlt" should never
-            // trigger tone marks anywhere.
-            bool oldAscii = true;
-            for (unsigned char c : oldComposed) {
-              if (c > 127) {
-                oldAscii = false;
-                break;
-              }
-            }
-            if (oldAscii && oldComposed.size() >= 2 && !viet_.isValid()) {
-              SKEY_DEBUG() << "Uinput: invalid VN result '" << newComposed
-                           << "', forward raw '" << keyUtf8 << "'";
-              viet_.backspace();
-              committedLen_ = static_cast<int>(utf8::length(oldComposed));
-              return; // forward raw key — no filterAndAccept
-            }
 
             keyEvent.filterAndAccept();
 
@@ -2596,6 +2735,56 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
 
     // Non-letter: finalize
     if (!viet_.getRawInput().empty()) {
+      // Auto-restore: when enabled, restore non-Vietnamese words
+      // to their raw form at commit time (Unikey-style).
+      bool autoRestored = false;
+      {
+        std::string preRestore = viet_.getComposed();
+        viet_.autoRestore();
+        std::string postRestore = viet_.getComposed();
+        if (preRestore != postRestore && useSurroundingText()) {
+          autoRestored = true;
+          SKEY_DEBUG() << "AutoRestore: '" << preRestore
+                       << "' -> '" << postRestore << "'";
+          if (useUinputMode()) {
+            // Full replacement via uinput: include punctuation in
+            // pending commit so it arrives AFTER BS events.
+            int oldLen = static_cast<int>(utf8::length(preRestore));
+            sendBackspaceUinput(oldLen + 1); // +1 sync BS
+            expectedUinputBackspaces_ = oldLen;
+            seenUinputBackspaces_ = 0;
+            pendingUinputCommit_ = postRestore + std::string(1, ch);
+            uinputPendingFinalLen_ =
+                static_cast<int>(utf8::length(postRestore));
+            uinputDeleting_ = true;
+            committedLen_ = uinputPendingFinalLen_;
+            uinputSafetyTimer_ =
+                engine_->instance()->eventLoop().addTimeEvent(
+                    CLOCK_MONOTONIC,
+                    now(CLOCK_MONOTONIC) + uinputTiming().safetyTimeoutUsec,
+                    0, [this](EventSourceTime *, uint64_t) {
+                      SKEY_DEBUG()
+                          << "AutoRestore: safety timeout, force commit";
+                      uinputSafetyTimer_.reset();
+                      uinputCommitTimer_.reset();
+                      std::string text = std::move(pendingUinputCommit_);
+                      pendingUinputCommit_.clear();
+                      expectedUinputBackspaces_ = 0;
+                      seenUinputBackspaces_ = 0;
+                      uinputDeleting_ = false;
+                      if (!text.empty())
+                        this->commitText(text);
+                      committedLen_ = uinputPendingFinalLen_;
+                      uinputPendingFinalLen_ = 0;
+                      if (!bufferedUinputKeys_.empty())
+                        replayBufferedUinputKeys();
+                      return true;
+                    });
+          } else {
+            surroundingCommit(preRestore, postRestore);
+          }
+        }
+      }
       saveLastWord();
       if (useSurroundingText()) {
         bool hadDeferred = hasDeferredCommitPending();
@@ -2603,7 +2792,7 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
           pendingFlushSuffix_ += std::string(1, ch);
         }
         forceFlushDeferredCommit();
-        if (!hadDeferred) {
+        if (!hadDeferred && !(autoRestored && useUinputMode())) {
           ic_->commitString(std::string(1, ch));
         }
         keyEvent.filterAndAccept();
