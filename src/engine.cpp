@@ -424,6 +424,36 @@ static bool isTerminalApp(const std::string &prog) {
   return false;
 }
 
+/// Detect lock screen / login screen programs by name.
+/// These should NEVER process Vietnamese transforms — the user is
+/// typing a password.  CapabilityFlag::PasswordOrSensitive (Wayland)
+/// and AT-SPI2 (X11) catch most cases, but some lock screens (like
+/// KDE's kscreenlocker_greet on X11) don't expose either signal.
+static bool programIsLockScreen(const std::string &prog) {
+  static const char *const patterns[] = {
+      "kscreenlocker",     // KDE lock screen (kscreenlocker_greet)
+      "i3lock",            // i3 lock screen
+      "swaylock",          // Sway lock screen
+      "swaylock-plugin",   // Sway lock screen (plugin variant)
+      "gtklock",           // GTK-based lock screen
+      "hyprlock",          // Hyprland lock screen
+      "sddm",              // SDDM login manager
+      "gdm",               // GDM login manager
+      "lightdm",           // LightDM login manager
+      "lxdm",              // LXDM login manager
+      "xdm",               // XDM login manager
+      "login",             // generic login program
+      "polkit",            // polkit auth dialogs
+      "pkexec",            // policykit exec
+  };
+  for (const char *p : patterns) {
+    if (prog.find(p) != std::string::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
 FCITX_ADDON_FACTORY(SKeyEngineFactory);
 
 // Candidate word for mode switch dropdown menu
@@ -1757,12 +1787,15 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
 
   // Password fields & lock/login screens (incl. sudo password prompts
   // in terminals): pass keys through unmodified.
-  // Two detection paths: CapabilityFlag::PasswordOrSensitive (Wayland) and
-  // AT-SPI2 accessibility monitor (X11 fallback).
+  // Three detection paths:
+  //   1. CapabilityFlag::PasswordOrSensitive (Wayland)
+  //   2. AT-SPI2 accessibility monitor (X11, GTK/Qt password fields)
+  //   3. Lock screen program name (kscreenlocker_greet, i3lock, etc.)
   if (!modeMenuActive_ &&
       (ic_->capabilityFlags().test(CapabilityFlag::PasswordOrSensitive) ||
        (engine_->a11yMonitor() &&
-        engine_->a11yMonitor()->isPasswordFocused()))) {
+        engine_->a11yMonitor()->isPasswordFocused()) ||
+       programIsLockScreen(ic_->program()))) {
     return;
   }
 
