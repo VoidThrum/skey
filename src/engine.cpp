@@ -1328,6 +1328,7 @@ void SKeyState::activate() {
     addrBarHadFirstWord_ = false;
     addrBarDidFullReplace_ = false;
     addrBarKeepState_ = false;
+    addrBarDeleteTarget_ = 0;
   }
   clearLastWord();
   modeMenuActive_ = false;
@@ -2247,15 +2248,39 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
     // Re-arm cycle protection for address bar (see composing BS handler).
     if (inChromiumAddressBar()) {
       addrBarExpectCycle_ = true;
+      if (committedLen_ > 0) {
+        // Decrement tracking — each raw BS pass-through deletes one
+        // character from the previously committed word.
+        committedLen_--;
+        wordWasBackspaced_ = true;
+      }
       if (committedLen_ == 0) {
-        addrBarHadFirstWord_ = false;
-        // First idle BS after committed word: reclaim was armed above.
-        // Track subsequent BS so we can cancel reclaim.
-        committedLen_ = -1;
+        // Tracked committed text deleted.  If no space was typed
+        // (addrBarHadSpace_ false), the bar is empty — re-enable
+        // first-word FullReplace.
+        if (!addrBarHadSpace_) {
+          addrBarHadFirstWord_ = false;
+        } else {
+          // Space was typed before this word.  The space is still on
+          // screen.  Next idle BS will delete the space and trigger
+          // the sentinel path below, which uses lastCommittedLen_ to
+          // know how many more chars to delete before the bar is empty.
+          addrBarDeleteTarget_ = lastCommittedLen_;
+        }
+        committedLen_ = -1; // sentinel: ready for reclaim or deletion
       } else if (committedLen_ == -1) {
-        // Second+ idle BS: user is deleting the word, not editing its
-        // tone.  Cancel reclaim so the next tone key starts a new word
-        // instead of resurrecting the deleted word.
+        // Past the word separator.  Count down remaining chars from
+        // the previous word.  When target reaches 0, all previous
+        // text is likely deleted — reset first-word state.
+        if (addrBarDeleteTarget_ > 0) {
+          addrBarDeleteTarget_--;
+          if (addrBarDeleteTarget_ == 0) {
+            addrBarHadFirstWord_ = false;
+            addrBarHadSpace_ = false;
+          }
+        }
+        // Cancel reclaim so a tone key starts a new word instead
+        // of resurrecting deleted text.
         reclaimReady_ = false;
         wordWasBackspaced_ = true;
       }
@@ -2802,9 +2827,18 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
               // commitString travel the same channel — D-Bus ordering
               // guarantees commitString arrives after BS is processed.
               if (inChromiumAddressBar()) {
+                bool oldAscii = true;
+                for (unsigned char c : oldComposed) {
+                  if (c > 127) {
+                    oldAscii = false;
+                    break;
+                  }
+                }
                 committedLen_ = static_cast<int>(utf8::length(newComposed));
-                scheduleAddrBarReplacement(deleteLen, addPart,
-                                           static_cast<int>(sym));
+                scheduleAddrBarReplacement(
+                    deleteLen, addPart,
+                    static_cast<int>(utf8::length(oldComposed)),
+                    static_cast<int>(sym), newComposed, oldAscii);
                 return;
               }
               sendBackspaceUinput(deleteLen + 1); // +1 sync BS
@@ -2986,44 +3020,95 @@ void SKeyState::commitBuffer() {
 }
 
 void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
-                                           int triggerKeySym) {
+                                           int oldComposedLen,
+                                           int triggerKeySym,
+                                           const std::string &fullComposed,
+                                           bool oldComposedIsAscii) {
   // Use uinput BS + adaptive EWMA timer delay before D-Bus commitString.
   // uinput BS goes through kernel → Chrome processes it as a real keystroke
   // (omnibox update, autocomplete dismissal).  The EWMA-based delay adapts
   // to Chrome's actual processing speed — faster machines get lower latency.
   //
-  // Unified replacement: no FullReplace, no first-word distinction.
-  // Autocomplete is handled dynamically via isAutofillCertain() which
-  // adds +1 BS when surrounding text shows an autocomplete selection.
+  // Platform-specific autocomplete handling:
+  // - X11: Chrome does NOT send CapabilityFlag::Url.  SurroundingText may be
+  //   unavailable in Uinput mode.  Use first-word FullReplace (oldComposedLen
+  //   + 1 BS) to dismiss autocomplete, with autoRestore to fix invalid
+  //   Vietnamese words (e.g. "vibẻ"→"viber").
+  // - Wayland: Chrome accurately reports Url for the address bar.
+  //   SurroundingText is reliable.  Use dynamic isAutofillCertain() to
+  //   detect autocomplete selections.
   addrBarExpectCycle_ = true;
   if (bs > 0) {
     int totalBs = bs;
     std::string commitText = text;
 
-    // Dynamic autocomplete detection: if Chrome's surrounding text shows
-    // an autocomplete selection, add +1 BS to clear the suggestion text.
-    // This replaces the old Escape approach and the static first-word
-    // fullReplace.  Works in any browser UI (address bar, find bar, etc.).
-    if (isAutofillCertain()) {
-      ++totalBs;
-      SKEY_DEBUG() << "AddrBar: autofill detected, +1 BS (total="
-                   << totalBs << ")";
+    if (!isWayland()) {
+      // ── X11: First-word FullReplace + autoRestore ──
+      // Only the first word after focus gets FullReplace (oldComposedLen
+      // + 1 BS to dismiss Chrome autocomplete).  Subsequent words use
+      // plain replacement (exact BS count, no Escape) — the forwarded
+      // matching-append keys already race on X11, and adding Escape or
+      // extra BS only makes the race condition worse.
+      if (!addrBarHadFirstWord_ && oldComposedLen > 0 &&
+          !fullComposed.empty()) {
+        bool hasTextBefore = false;
+        const auto &surrounding = ic_->surroundingText();
+        if (surrounding.isValid()) {
+          hasTextBefore =
+              surrounding.cursor() >
+              static_cast<unsigned int>(oldComposedLen);
+        } else if (addrBarHadSpace_) {
+          hasTextBefore = true;
+        }
+        if (!hasTextBefore) {
+          totalBs = oldComposedLen + 1;
+          commitText = fullComposed;
+          {
+            std::string preRestore = commitText;
+            viet_.autoRestore();
+            std::string postRestore = viet_.getComposed();
+            if (preRestore != postRestore) {
+              SKEY_DEBUG() << "AddrBar: autoRestore '" << preRestore
+                           << "' -> '" << postRestore << "'";
+              commitText = postRestore;
+            }
+          }
+          addrBarHadFirstWord_ = true;
+          addrBarDidFullReplace_ =
+              !(oldComposedIsAscii && oldComposedLen == 1);
+          addrBarKeepState_ =
+              (oldComposedIsAscii && oldComposedLen == 1);
+          SKEY_DEBUG() << "AddrBar: first word, fullReplace BS=" << totalBs
+                       << " commit='" << commitText << "'"
+                       << (addrBarKeepState_ ? " [keep-state]" : "");
+        }
+      }
+    } else {
+      // ── Wayland: Dynamic autocomplete detection ──
+      if (isAutofillCertain()) {
+        ++totalBs;
+        SKEY_DEBUG() << "AddrBar: autofill detected, +1 BS (total="
+                     << totalBs << ")";
+      }
     }
+
     // Trigger-key guard: prevent Chrome's re-delivered key (from focus
     // cycle after commitString) from being processed as a second key press.
-    // The guard is cleared in the commit timer so the user's intentional
-    // second press (for undo) is not blocked after the commit completes.
     // Only set when triggerKeySym is non-zero — the SurroundingText path
     // already sets the guard before calling us (with the correct sym) and
     // passes triggerKeySym=0 here; we must not overwrite that with 0.
     if (triggerKeySym != 0) {
       addrBarLastTriggerKey_ = triggerKeySym;
-      addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) + 100000;
+      addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) +
+                                (isWayland() ? 100000 : 200000);
     }
     // Sync BS handler uses this to restore committedLen_ after BS
     // pass-through decrements it (same as general uinput path).
     uinputPendingFinalLen_ = static_cast<int>(utf8::length(commitText));
-    uint32_t uinputFlags = 0; // no Escape — extra BS handles autocomplete
+    // No Escape on either platform — extra BS handles autocomplete
+    // dismissal.  Escape causes spurious Chrome focus cycles on X11
+    // that corrupt the replacement.
+    uint32_t uinputFlags = 0;
     expectedUinputBackspaces_ = totalBs;
     seenUinputBackspaces_ = 0;
     pendingUinputCommit_ = commitText;
@@ -3046,6 +3131,13 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
           if (uinputPendingFinalLen_ > 0) {
             committedLen_ = uinputPendingFinalLen_;
             uinputPendingFinalLen_ = 0;
+          }
+          if (addrBarDidFullReplace_) {
+            addrBarDidFullReplace_ = false;
+            addrBarKeepState_ = false;
+            if (!text.empty()) {
+              committedLen_ = static_cast<int>(utf8::length(text));
+            }
           }
           if (!bufferedUinputKeys_.empty())
             replayBufferedUinputKeys();
@@ -3251,7 +3343,10 @@ void SKeyState::surroundingCommit(const std::string &oldComposed,
         // focus-change issues.
         if (inChromiumAddressBar()) {
           committedLen_ = newLen;
-          scheduleAddrBarReplacement(deleteLen, addedPart);
+          scheduleAddrBarReplacement(
+              deleteLen, addedPart,
+              static_cast<int>(utf8::length(oldComposed)),
+              0, newComposed);
           return;
         }
         if (useUinputMode()) {

@@ -85,7 +85,10 @@ private:
     void clearLastWord();
     void flushAddrBarReplacement();
     void scheduleAddrBarReplacement(int bs, const std::string &text,
-                                     int triggerKeySym = 0);
+                                     int oldComposedLen = 0,
+                                     int triggerKeySym = 0,
+                                     const std::string &fullComposed = {},
+                                     bool oldComposedIsAscii = false);
 
     SKeyEngine *engine_;
     InputContext *ic_;
@@ -175,6 +178,11 @@ private:
     bool addrBarDidFullReplace_ = false; // FullReplace done, reset engine on commit
     bool addrBarHadFirstWord_ = false;  // First word already done, block fullReplace
     bool addrBarKeepState_ = false;     // Keep-state active, reset engine on BS
+    int addrBarDeleteTarget_ = 0;       // Chars remaining to delete after space
+                                        // is removed (committedLen_ 0→-1).
+                                        // Set to lastCommittedLen_ (previous
+                                        // word length).  When reaches 0, the
+                                        // address bar is likely empty.
     // True while processing a reclaimed-word replacement — forces
     // surroundingCommit to use forwardKey instead of the native
     // surrounding-text API, which may be out-of-sync after reclaim.
