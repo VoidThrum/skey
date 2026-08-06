@@ -1000,8 +1000,14 @@ bool SKeyState::inChromiumAddressBar() const {
   if (ic_->capabilityFlags().test(CapabilityFlag::Url)) {
     return true;
   }
-  // Method 2: X11 — use AT-SPI2 accessibility monitor
-  if (engine_->a11yMonitor() && engine_->a11yMonitor()->isBrowserUIFocused() &&
+  // Method 2: X11 — use AT-SPI2 accessibility monitor.
+  // Only on X11 where Chrome does NOT send CapabilityFlag::Url natively.
+  // On Wayland, Chrome accurately reports Url for the address bar (urlCap=1)
+  // and omits it for the find bar (urlCap=0).  Using the AT-SPI2 fallback on
+  // Wayland would misclassify the Ctrl+F find bar as an address bar, causing
+  // Escape-key autocomplete dismissal to close the find bar.
+  if (!isWayland() && engine_->a11yMonitor() &&
+      engine_->a11yMonitor()->isBrowserUIFocused() &&
       isChromiumBrowser(ic_->program())) {
     return true;
   }
