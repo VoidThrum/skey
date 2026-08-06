@@ -3,7 +3,10 @@
 #include "updater.h"
 
 #include <QApplication>
+#include <QDateTime>
 #include <QDesktopServices>
+#include <QDir>
+#include <QFileDialog>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -13,6 +16,7 @@
 #include <QProcess>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -172,6 +176,35 @@ void InfoTab::setupUI() {
   emailLabel->setCursor(Qt::PointingHandCursor);
   mainLayout->addWidget(emailLabel);
 
+  // ── Backup / Restore ──
+  auto *sep3 = new QFrame(this);
+  sep3->setFrameShape(QFrame::HLine);
+  sep3->setFrameShadow(QFrame::Sunken);
+  mainLayout->addWidget(sep3);
+
+  auto *backupFrame = new QFrame(this);
+  backupFrame->setFrameStyle(QFrame::StyledPanel);
+  auto *backupLayout = new QHBoxLayout(backupFrame);
+  backupLayout->setContentsMargins(12, 10, 12, 10);
+  backupLayout->setSpacing(8);
+
+  auto *backupLabel =
+      new QLabel(QString::fromUtf8("Backup / Restore:"), backupFrame);
+  backupLayout->addWidget(backupLabel);
+  backupLayout->addStretch();
+
+  backupButton_ = new QPushButton(QString::fromUtf8("Sao lưu"), backupFrame);
+  backupButton_->setMinimumWidth(90);
+  connect(backupButton_, &QPushButton::clicked, this, &InfoTab::onBackup);
+  backupLayout->addWidget(backupButton_);
+
+  restoreButton_ = new QPushButton(QString::fromUtf8("Khôi phục"), backupFrame);
+  restoreButton_->setMinimumWidth(90);
+  connect(restoreButton_, &QPushButton::clicked, this, &InfoTab::onRestore);
+  backupLayout->addWidget(restoreButton_);
+
+  mainLayout->addWidget(backupFrame);
+
   mainLayout->addStretch();
 }
 
@@ -330,4 +363,118 @@ void InfoTab::onInstallFinished(bool success, const QString &message) {
     statusLabel_->setStyleSheet("font-size: 12px; color: red;");
   }
   statusLabel_->show();
+}
+
+// ── Backup / Restore ────────────────────────────────────────────────────
+
+void InfoTab::onBackup() {
+  QString defaultName =
+      QString::fromUtf8("skey-backup-%1.tar.gz")
+          .arg(QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss"));
+  QString savePath = QFileDialog::getSaveFileName(
+      this, QString::fromUtf8("Lưu bản sao lưu cấu hình"),
+      QDir::homePath() + "/" + defaultName,
+      QString::fromUtf8("Tarball (*.tar.gz)"));
+  if (savePath.isEmpty())
+    return;
+
+  // Copy all config files into a temp dir, then tar the dir.
+  // This avoids path complexity — all files land as flat names in the archive.
+  QTemporaryDir tmpDir;
+  if (!tmpDir.isValid()) {
+    QMessageBox::warning(this, QString::fromUtf8("Lỗi"),
+                         QString::fromUtf8("Không thể tạo thư mục tạm."));
+    return;
+  }
+
+  struct {
+    std::string srcPath;
+    const char *destName;
+  } files[] = {
+      {skeyConfPath(), "skey.conf"},
+      {appModesPath(), "skey-app-modes.conf"},
+      {macroPath(), "skey-macro.conf"},
+      {fcitx5ConfigPath(), "fcitx5-config"},
+  };
+  for (auto &f : files) {
+    QFile::copy(QString::fromStdString(f.srcPath),
+                tmpDir.path() + "/" + f.destName);
+  }
+
+  QProcess tar;
+  tar.setWorkingDirectory(tmpDir.path());
+  tar.start("tar", {"-czf", savePath, "."});
+  tar.waitForFinished(10000);
+
+  QMessageBox::information(
+      this, QString::fromUtf8("Đã sao lưu"),
+      QString::fromUtf8("Cấu hình đã được lưu vào:\n%1").arg(savePath));
+}
+
+void InfoTab::onRestore() {
+  auto answer = QMessageBox::question(
+      this, QString::fromUtf8("Khôi phục cấu hình"),
+      QString::fromUtf8("Khôi phục sẽ ghi đè toàn bộ cấu hình hiện tại.\n"
+                        "Bạn có chắc muốn tiếp tục?"),
+      QMessageBox::Yes | QMessageBox::No);
+  if (answer != QMessageBox::Yes)
+    return;
+
+  QString openPath = QFileDialog::getOpenFileName(
+      this, QString::fromUtf8("Chọn tệp sao lưu để khôi phục"),
+      QDir::homePath(), QString::fromUtf8("Tarball (*.tar.gz)"));
+  if (openPath.isEmpty())
+    return;
+
+  QTemporaryDir tmpDir;
+  if (!tmpDir.isValid()) {
+    QMessageBox::warning(this, QString::fromUtf8("Lỗi"),
+                         QString::fromUtf8("Không thể tạo thư mục tạm."));
+    return;
+  }
+
+  QProcess tar;
+  tar.start("tar", {"-xzf", openPath, "-C", tmpDir.path()});
+  tar.waitForFinished(10000);
+  if (tar.exitCode() != 0) {
+    QMessageBox::warning(
+        this, QString::fromUtf8("Lỗi"),
+        QString::fromUtf8("Không thể giải nén tệp sao lưu:\n%1").arg(openPath));
+    return;
+  }
+
+  struct {
+    const char *filename;
+    std::string destPath;
+  } mappings[] = {
+      {"skey.conf", skeyConfPath()},
+      {"skey-app-modes.conf", appModesPath()},
+      {"skey-macro.conf", macroPath()},
+      {"fcitx5-config", fcitx5ConfigPath()},
+  };
+
+  bool allOk = true;
+  for (auto &m : mappings) {
+    QString src = tmpDir.path() + "/" + m.filename;
+    if (!QFile::exists(src)) {
+      allOk = false;
+      continue;
+    }
+    QFile::remove(QString::fromStdString(m.destPath));
+    if (!QFile::copy(src, QString::fromStdString(m.destPath))) {
+      allOk = false;
+    }
+  }
+
+  if (!allOk) {
+    QMessageBox::warning(this, QString::fromUtf8("Cảnh báo"),
+                         QString::fromUtf8("Một số tệp không thể khôi phục.\n"
+                                           "Kiểm tra lại tệp sao lưu."));
+  }
+
+  reloadFcitx5();
+  emit configRestored();
+  QMessageBox::information(
+      this, QString::fromUtf8("Đã khôi phục"),
+      QString::fromUtf8("Cấu hình đã được khôi phục và áp dụng."));
 }

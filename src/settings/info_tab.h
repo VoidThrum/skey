@@ -13,10 +13,16 @@ class InfoTab : public QWidget {
 public:
     explicit InfoTab(QWidget *parent = nullptr);
 
+signals:
+    /// Emitted after a config restore so the parent window can reload all tabs.
+    void configRestored();
+
 private slots:
     void onCheckUpdate();
     void onOpenGitHub();
     void onRestartFcitx5();
+    void onBackup();
+    void onRestore();
 
     // Updater slots
     void onUpdateAvailable(const QString &newVersion,
@@ -37,6 +43,8 @@ private:
     QLabel *statusLabel_;
     QPushButton *updateBtn_;
     QPushButton *restartBtn_;
+    QPushButton *backupButton_;
+    QPushButton *restoreButton_;
     QProgressBar *progressBar_;
     Updater *updater_;
 

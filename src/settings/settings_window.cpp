@@ -81,7 +81,7 @@ void SkeySettingsWindow::setupUI() {
           &SkeySettingsWindow::onDefaults);
   connect(closeButton_, &QPushButton::clicked, this,
           &SkeySettingsWindow::onClose);
-  connect(generalTab_, &GeneralTab::configRestored, this,
+  connect(infoTab_, &InfoTab::configRestored, this,
           &SkeySettingsWindow::loadSettings);
 }
 
