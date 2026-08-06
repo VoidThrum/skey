@@ -50,6 +50,7 @@ private:
     friend class AddressBarModeCandidateWord;
     SKeyOutputMode effectiveMode() const;
     bool inChromiumAddressBar() const;
+    bool isAutofillCertain() const;
     bool useSurroundingText() const;
     bool canEditWithSurroundingText() const;
     bool useNativeSurroundingApi() const;
@@ -84,10 +85,7 @@ private:
     void clearLastWord();
     void flushAddrBarReplacement();
     void scheduleAddrBarReplacement(int bs, const std::string &text,
-                                     int oldComposedLen = 0,
-                                     int triggerKeySym = 0,
-                                     const std::string &fullComposed = {},
-                                     bool oldComposedIsAscii = false);
+                                     int triggerKeySym = 0);
 
     SKeyEngine *engine_;
     InputContext *ic_;
@@ -115,7 +113,7 @@ private:
     uint64_t deferredBsSentAt_ = 0;
     std::string pendingFlushSuffix_;
     int uinputClientFd_ = -1;
-    // Uinput replacement state (Lotus-style simple flow)
+    // Uinput replacement state
     bool uinputDeleting_ = false;
     std::unique_ptr<EventSourceTime> uinputCommitTimer_;
     std::unique_ptr<EventSourceTime> uinputSafetyTimer_;

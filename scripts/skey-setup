@@ -150,17 +150,17 @@ echo "  Shell: $USER_SHELL  DE: $USER_DE  Session: $SESSION_TYPE  Distro: $DISTR
 if [ "$SESSION_TYPE" = "wayland" ]; then
     case "$USER_DE" in
         "KDE Plasma")
-            ENV_VARS="GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx5 XMODIFIERS=@im=fcitx SDL_IM_MODULE=fcitx GLFW_IM_MODULE=ibus"
+            ENV_VARS="GTK_IM_MODULE=fcitx5 QT_IM_MODULE=fcitx5 XMODIFIERS=@im=fcitx SDL_IM_MODULE=fcitx5 GLFW_IM_MODULE=ibus QT_IM_MODULES=wayland;fcitx"
             ;;
         GNOME|Sway)
-            ENV_VARS="XMODIFIERS=@im=fcitx QT_IM_MODULE=fcitx5 QT_IM_MODULES=wayland;fcitx GLFW_IM_MODULE=ibus"
+            ENV_VARS="GTK_IM_MODULE=fcitx5 QT_IM_MODULE=fcitx5 XMODIFIERS=@im=fcitx SDL_IM_MODULE=fcitx5 GLFW_IM_MODULE=ibus QT_IM_MODULES=wayland;fcitx"
             ;;
         *)
-            ENV_VARS="GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx5 XMODIFIERS=@im=fcitx SDL_IM_MODULE=fcitx GLFW_IM_MODULE=ibus"
+            ENV_VARS="GTK_IM_MODULE=fcitx5 QT_IM_MODULE=fcitx5 XMODIFIERS=@im=fcitx SDL_IM_MODULE=fcitx5 GLFW_IM_MODULE=ibus QT_IM_MODULES=wayland;fcitx"
             ;;
     esac
 else
-    ENV_VARS="GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx5 XMODIFIERS=@im=fcitx SDL_IM_MODULE=fcitx GLFW_IM_MODULE=ibus"
+    ENV_VARS="GTK_IM_MODULE=fcitx5 QT_IM_MODULE=fcitx5 XMODIFIERS=@im=fcitx SDL_IM_MODULE=fcitx5 GLFW_IM_MODULE=ibus QT_IM_MODULES=wayland;fcitx"
 fi
 
 # ── Helper: safely update a shell config file ──
