@@ -1688,6 +1688,10 @@ void SKeyState::deactivate() {
           SKEY_DEBUG() << "Deactivate: no reactivate, genuine focus loss";
           addrBarExpectCycle_ = false;
           addrBarCycleTimer_.reset();
+          // Next word in a fresh context is the first word again
+          // (e.g. new tab, new page) — fullReplace with autoRestore
+          // should apply.
+          addrBarHadFirstWord_ = false;
           // Only commit/flush if using non-uinput modes (preedit, etc.)
           // where the composition hasn't been committed yet.  In uinput
           // mode, replacements already committed via commitText() so
@@ -2953,6 +2957,19 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
       if (!hasTextBefore) {
         totalBs = oldComposedLen + 1;
         commitText = fullComposed;
+        // Auto-restore for first word: if the composed text is not
+        // valid Vietnamese (e.g. "fĩ"), restore to raw form ("fix").
+        // Subsequent words are handled by the space handler.
+        {
+          std::string preRestore = commitText;
+          viet_.autoRestore();
+          std::string postRestore = viet_.getComposed();
+          if (preRestore != postRestore) {
+            SKEY_DEBUG() << "AddrBar: autoRestore '" << preRestore
+                         << "' -> '" << postRestore << "'";
+            commitText = postRestore;
+          }
+        }
         addrBarHadFirstWord_ = true;
         // Don't reset engine for single-char ASCII→VN transforms
         // (e.g. "e"+"f"→"è").  Keeping state lets the user undo by
@@ -2972,7 +2989,7 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
     addrBarTriggerDeadline_ = now(CLOCK_MONOTONIC) + 200000;
     // Sync BS handler uses this to restore committedLen_ after BS
     // pass-through decrements it (same as general uinput path).
-    uinputPendingFinalLen_ = static_cast<int>(utf8::length(fullComposed));
+    uinputPendingFinalLen_ = static_cast<int>(utf8::length(commitText));
     // When fullReplace didn't modify totalBs (non-first-word after
     // space, or addrBarHadSpace_ guard active), send Escape before
     // BS to dismiss Chrome inline autocomplete.  Escape deletes
