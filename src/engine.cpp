@@ -724,7 +724,9 @@ void SKeyEngine::setOutputMode(SKeyOutputMode mode) {
 
 void SKeyEngine::setChromiumAddressBarMode(SKeyChromiumAddressBarMode mode) {
   config_.chromiumAddressBarMode.setValue(mode);
-  safeSaveAsIni(config_, "conf/skey.conf");
+  bool ok = safeSaveAsIni(config_, "conf/skey.conf");
+  SKEY_INFO() << "AddrBar mode saved: " << static_cast<int>(mode)
+              << " ok=" << ok;
 }
 
 std::string SKeyEngine::lookupMacro(const std::string &key) const {
@@ -793,8 +795,9 @@ void SKeyEngine::saveAppMode(const std::string &app, SKeyOutputMode mode) {
   readAsIni(cfg, "conf/skey-app-modes.conf");
   std::string val = outputModeName(mode);
   cfg.setValueByPath(app, val);
-  safeSaveAsIni(cfg, "conf/skey-app-modes.conf");
-  SKEY_INFO() << "Saved app mode: " << app << " -> " << val;
+  bool ok = safeSaveAsIni(cfg, "conf/skey-app-modes.conf");
+  SKEY_INFO() << "Saved app mode: " << app << " -> " << val
+              << " ok=" << ok;
 }
 
 SKeyOutputMode SKeyEngine::loadAppMode(const std::string &app) const {
@@ -975,16 +978,22 @@ void SKeyState::refreshAppMode() {
   readAsIni(cfg, "conf/skey-app-modes.conf");
   auto *val = cfg.valueByPath(prog);
   if (val) {
-    if (*val == "Excluded") {
+    std::string modeStr = *val;
+    if (modeStr.size() >= 2 && modeStr.front() == '"' &&
+        modeStr.back() == '"')
+      modeStr = modeStr.substr(1, modeStr.size() - 2);
+
+    if (modeStr == "Excluded") {
       appExcluded_ = true;
     } else {
       SKeyOutputMode savedMode = engine_->config().outputMode.value();
-      if (*val == "Preedit")
+      if (modeStr == "Preedit")
         savedMode = SKeyOutputMode::Preedit;
-      else if (*val == "SurroundingTextSlow" || *val == "SurroundingText" ||
-               *val == "Surrounding Text")
+      else if (modeStr == "SurroundingTextSlow" ||
+               modeStr == "SurroundingText" ||
+               modeStr == "Surrounding Text")
         savedMode = SKeyOutputMode::SurroundingText;
-      else if (*val == "Uinput")
+      else if (modeStr == "Uinput")
         savedMode = SKeyOutputMode::Uinput;
       appModeOverride_ = savedMode;
       hasAppModeOverride_ = true;
@@ -1335,19 +1344,27 @@ void SKeyState::activate() {
     readAsIni(cfg, "conf/skey-app-modes.conf");
     auto *val = cfg.valueByPath(ic_->program());
     if (val) {
-      if (*val == "Excluded") {
+      // Normalize: strip quotes that safeSaveAsIni adds for values
+      // containing spaces (e.g. "Surrounding Text" → Surrounding Text).
+      std::string modeStr = *val;
+      if (modeStr.size() >= 2 && modeStr.front() == '"' &&
+          modeStr.back() == '"')
+        modeStr = modeStr.substr(1, modeStr.size() - 2);
+
+      if (modeStr == "Excluded") {
         appExcluded_ = true;
       } else {
         SKeyOutputMode savedMode = engine_->config().outputMode.value();
-        if (*val == "Preedit")
+        if (modeStr == "Preedit")
           savedMode = SKeyOutputMode::Preedit;
-        else if (*val == "SurroundingTextSlow")
-          savedMode = SKeyOutputMode::SurroundingText; // migrate
-        else if (*val == "Uinput")
-          savedMode = SKeyOutputMode::Uinput;
-        else if (*val == "SurroundingText")
+        else if (modeStr == "SurroundingTextSlow" ||
+                 modeStr == "Surrounding Text")
           savedMode = SKeyOutputMode::SurroundingText;
-        else if (*val == "Auto")
+        else if (modeStr == "Uinput")
+          savedMode = SKeyOutputMode::Uinput;
+        else if (modeStr == "SurroundingText")
+          savedMode = SKeyOutputMode::SurroundingText;
+        else if (modeStr == "Auto")
           savedMode = SKeyOutputMode::Auto;
         appModeOverride_ = savedMode;
         hasAppModeOverride_ = true;

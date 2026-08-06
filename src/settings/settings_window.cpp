@@ -8,6 +8,7 @@
 
 #include <QApplication>
 #include <QHBoxLayout>
+#include <QShowEvent>
 #include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
@@ -83,6 +84,11 @@ void SkeySettingsWindow::setupUI() {
           &SkeySettingsWindow::onClose);
   connect(infoTab_, &InfoTab::configRestored, this,
           &SkeySettingsWindow::loadSettings);
+}
+
+void SkeySettingsWindow::showEvent(QShowEvent *event) {
+  QWidget::showEvent(event);
+  loadSettings(); // re-read config in case it changed outside the GUI
 }
 
 void SkeySettingsWindow::loadSettings() {

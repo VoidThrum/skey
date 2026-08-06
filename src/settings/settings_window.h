@@ -16,6 +16,9 @@ class SkeySettingsWindow : public QWidget {
 public:
     explicit SkeySettingsWindow(QWidget *parent = nullptr);
 
+protected:
+    void showEvent(QShowEvent *event) override;
+
 private slots:
     void onApply();
     void onDefaults();
