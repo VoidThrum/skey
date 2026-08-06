@@ -2305,7 +2305,11 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
         clearUI();
       }
       viet_.reset();
-      committedLen_ = 0;
+      // When autoRestored, the uinput commit handler sets the final
+      // committedLen_ asynchronously — don't race with 0 here.
+      if (!autoRestored) {
+        committedLen_ = 0;
+      }
       if (autoRestored && useUinputMode()) {
         keyEvent.filterAndAccept();
       }
@@ -2411,7 +2415,13 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
         clearUI();
       }
       viet_.reset();
-      committedLen_ = 0;
+      // When autoRestored, the uinput commit handler will set the final
+      // committedLen_ (= uinputPendingFinalLen_) asynchronously.  Don't
+      // clobber it with 0 here — that would race and could leave the
+      // engine in an inconsistent state for the next word.
+      if (!autoRestored) {
+        committedLen_ = 0;
+      }
       // After space, the next word is NOT the first word — autocomplete
       // won't trigger on multi-word text.
       addrBarIsFirstWord_ = false;
@@ -2512,7 +2522,9 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
         clearUI();
       }
       viet_.reset();
-      committedLen_ = 0;
+      if (!autoRestored) {
+        committedLen_ = 0;
+      }
       if (autoRestored && useUinputMode()) {
         keyEvent.filterAndAccept();
       }
@@ -2568,6 +2580,14 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
         }
         reclaimReady_ = false;
         sepAlreadyDeleted_ = false;
+      }
+
+      // Starting a new word with empty raw input: clear any residual
+      // English bypass from a previous undo (e.g. from a re-delivered
+      // tone key that triggered tryUndoTransform).  Without this, all
+      // subsequent words lose Vietnamese composition.
+      if (viet_.getRawInput().empty()) {
+        viet_.clearEnglishBypass();
       }
 
       // Flush any pending address bar replacement before processing
@@ -2850,7 +2870,11 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
         clearUI();
       }
       viet_.reset();
-      committedLen_ = 0;
+      // When autoRestored, the uinput commit handler sets the final
+      // committedLen_ asynchronously — don't race with 0 here.
+      if (!autoRestored) {
+        committedLen_ = 0;
+      }
       // Like space, a separator commits the current word — the next
       // word is not the first and must not trigger fullReplace.
       addrBarHadFirstWord_ = true;

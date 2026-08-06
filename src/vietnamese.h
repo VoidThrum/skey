@@ -79,6 +79,10 @@ public:
     /// Whether the engine is in English bypass mode (after undo detected).
     bool isEnglishBypass() const { return englishBypass_; }
 
+    /// Clear English bypass at word boundaries so the next word
+    /// starts with fresh Vietnamese processing.
+    void clearEnglishBypass() { englishBypass_ = false; }
+
     /// Check if the current composition forms a valid Vietnamese syllable.
     /// Returns false for English words that accidentally trigger tone keys
     /// (e.g. "ultr" → "ủlt" is not valid Vietnamese).
