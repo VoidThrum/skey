@@ -434,22 +434,23 @@ static bool programIsLockScreen(const std::string &prog) {
       "kscreenlocker",     // KDE lock screen (kscreenlocker_greet)
       "i3lock",            // i3 lock screen
       "swaylock",          // Sway lock screen
-      "swaylock-plugin",   // Sway lock screen (plugin variant)
       "gtklock",           // GTK-based lock screen
       "hyprlock",          // Hyprland lock screen
       "sddm",              // SDDM login manager
       "gdm",               // GDM login manager
       "lightdm",           // LightDM login manager
       "lxdm",              // LXDM login manager
-      "xdm",               // XDM login manager
-      "login",             // generic login program
       "polkit",            // polkit auth dialogs
-      "pkexec",            // policykit exec
   };
   for (const char *p : patterns) {
     if (prog.find(p) != std::string::npos) {
       return true;
     }
+  }
+  // Exact match for system auth programs (substring would be too broad)
+  if (prog == "login" || prog == "su" || prog == "sudo" ||
+      prog == "pkexec") {
+    return true;
   }
   return false;
 }
