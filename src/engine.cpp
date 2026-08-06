@@ -1328,7 +1328,7 @@ void SKeyState::activate() {
     addrBarHadFirstWord_ = false;
     addrBarDidFullReplace_ = false;
     addrBarKeepState_ = false;
-    addrBarDeleteTarget_ = 0;
+    addrBarPrevCommittedLen_ = 0;
   }
   clearLastWord();
   modeMenuActive_ = false;
@@ -2248,39 +2248,16 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
     // Re-arm cycle protection for address bar (see composing BS handler).
     if (inChromiumAddressBar()) {
       addrBarExpectCycle_ = true;
-      if (committedLen_ > 0) {
-        // Decrement tracking — each raw BS pass-through deletes one
-        // character from the previously committed word.
+      // X11 Uinput: manually decrement committedLen_ (no SurroundingText).
+      // The addrBarPrevCommittedLen_ snapshot in scheduleAddrBarReplacement
+      // determines FullReplace safety — no complex delete-target logic needed.
+      if (!isWayland() && committedLen_ > 0) {
         committedLen_--;
         wordWasBackspaced_ = true;
       }
       if (committedLen_ == 0) {
-        // Tracked committed text deleted.  If no space was typed
-        // (addrBarHadSpace_ false), the bar is empty — re-enable
-        // first-word FullReplace.
-        if (!addrBarHadSpace_) {
-          addrBarHadFirstWord_ = false;
-        } else {
-          // Space was typed before this word.  The space is still on
-          // screen.  Next idle BS will delete the space and trigger
-          // the sentinel path below, which uses lastCommittedLen_ to
-          // know how many more chars to delete before the bar is empty.
-          addrBarDeleteTarget_ = lastCommittedLen_;
-        }
-        committedLen_ = -1; // sentinel: ready for reclaim or deletion
+        committedLen_ = -1;
       } else if (committedLen_ == -1) {
-        // Past the word separator.  Count down remaining chars from
-        // the previous word.  When target reaches 0, all previous
-        // text is likely deleted — reset first-word state.
-        if (addrBarDeleteTarget_ > 0) {
-          addrBarDeleteTarget_--;
-          if (addrBarDeleteTarget_ == 0) {
-            addrBarHadFirstWord_ = false;
-            addrBarHadSpace_ = false;
-          }
-        }
-        // Cancel reclaim so a tone key starts a new word instead
-        // of resurrecting deleted text.
         reclaimReady_ = false;
         wordWasBackspaced_ = true;
       }
@@ -2779,6 +2756,12 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
             // consume the key via filterAndAccept to prevent
             // Electron from processing it + the NEXT key (space)
             // before the replacement completes.
+            // Snapshot committedLen_ at the start of a new word
+            // (oldComposed empty).  Used in scheduleAddrBarReplacement
+            // to check if the bar was empty before this word.
+            if (oldComposed.empty()) {
+              addrBarPrevCommittedLen_ = committedLen_;
+            }
             committedLen_ = static_cast<int>(utf8::length(newComposed));
 
             // Check matching append: old + key == new
@@ -3049,6 +3032,17 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
       // plain replacement (exact BS count, no Escape) — the forwarded
       // matching-append keys already race on X11, and adding Escape or
       // extra BS only makes the race condition worse.
+      //
+      // addrBarPrevCommittedLen_ is a snapshot of committedLen_ before the
+      // current replacement.  If < 0 (sentinel -1 from backspacing past
+      // all tracked text), the bar is empty — reset first-word flag so
+      // FullReplace fires again.  Do NOT reset when == 0 (engine reset
+      // after space — text still exists on screen, FullReplace would
+      // delete the space and join words).
+      if (addrBarPrevCommittedLen_ < 0) {
+        addrBarHadFirstWord_ = false;
+        addrBarHadSpace_ = false;
+      }
       if (!addrBarHadFirstWord_ && oldComposedLen > 0 &&
           !fullComposed.empty()) {
         bool hasTextBefore = false;
@@ -3057,7 +3051,12 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
           hasTextBefore =
               surrounding.cursor() >
               static_cast<unsigned int>(oldComposedLen);
-        } else if (addrBarHadSpace_) {
+        } else if (addrBarHadSpace_ && addrBarPrevCommittedLen_ > 0) {
+          // Space was typed AND there were tracked chars on screen
+          // before this word → text exists before cursor → block
+          // FullReplace to avoid damaging it.  If prevCommittedLen
+          // <= 0 (bar was empty, all tracked text deleted), the
+          // space guard is stale — allow FullReplace.
           hasTextBefore = true;
         }
         if (!hasTextBefore) {
@@ -3084,8 +3083,38 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
         }
       }
     } else {
-      // ── Wayland: Dynamic autocomplete detection ──
-      if (isAutofillCertain()) {
+      // ── Wayland: First-word FullReplace + dynamic autocomplete ──
+      // SurroundingText is reliable on Wayland — use cursor position
+      // to safely determine if FullReplace is safe (no text before).
+      // FullReplace commits the entire composed word after autoRestore,
+      // fixing invalid Vietnamese words (e.g. "vibẻ"→"viber").
+      if (!addrBarHadFirstWord_ && oldComposedLen > 0 &&
+          !fullComposed.empty()) {
+        bool hasTextBefore = false;
+        const auto &surrounding = ic_->surroundingText();
+        if (surrounding.isValid()) {
+          hasTextBefore =
+              surrounding.cursor() >
+              static_cast<unsigned int>(oldComposedLen);
+        }
+        if (!hasTextBefore) {
+          totalBs = oldComposedLen + 1;
+          commitText = fullComposed;
+          {
+            std::string preRestore = commitText;
+            viet_.autoRestore();
+            std::string postRestore = viet_.getComposed();
+            if (preRestore != postRestore) {
+              SKEY_DEBUG() << "AddrBar: autoRestore '" << preRestore
+                           << "' -> '" << postRestore << "'";
+              commitText = postRestore;
+            }
+          }
+          addrBarHadFirstWord_ = true;
+          SKEY_DEBUG() << "AddrBar: first word, fullReplace BS=" << totalBs
+                       << " commit='" << commitText << "'";
+        }
+      } else if (isAutofillCertain()) {
         ++totalBs;
         SKEY_DEBUG() << "AddrBar: autofill detected, +1 BS (total="
                      << totalBs << ")";

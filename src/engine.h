@@ -178,11 +178,11 @@ private:
     bool addrBarDidFullReplace_ = false; // FullReplace done, reset engine on commit
     bool addrBarHadFirstWord_ = false;  // First word already done, block fullReplace
     bool addrBarKeepState_ = false;     // Keep-state active, reset engine on BS
-    int addrBarDeleteTarget_ = 0;       // Chars remaining to delete after space
-                                        // is removed (committedLen_ 0→-1).
-                                        // Set to lastCommittedLen_ (previous
-                                        // word length).  When reaches 0, the
-                                        // address bar is likely empty.
+    int addrBarPrevCommittedLen_ = 0;  // committedLen_ snapshot before the
+                                        // current replacement.  Used to check
+                                        // if text existed on screen.
+                                        // <=0 = bar was empty → FullReplace
+                                        // safe even when addrBarHadSpace_ set.
     // True while processing a reclaimed-word replacement — forces
     // surroundingCommit to use forwardKey instead of the native
     // surrounding-text API, which may be out-of-sync after reclaim.
