@@ -442,7 +442,7 @@ fi
 # Some third-party themes (Vivid-Glassy-Dark, etc.) lack an index.theme
 # and don't inherit hicolor, so fcitx5 and the taskbar can't find the
 # skey icon.  Copy the PNG into the current theme's status + apps dirs.
-if [ -f /usr/share/pixmaps/fcitx-skey.png ]; then
+if [ -f /usr/share/pixmaps/fcitx-skey.svg ]; then
     # Find icon source directory (candidate search across common icon themes)
     ICON_SRC=""
     for candidate in \
@@ -493,6 +493,12 @@ if [ -f /usr/share/pixmaps/fcitx-skey.png ]; then
             break
         fi
     done
+fi
+
+# Update GTK icon cache so GNOME Shell picks up new hicolor icons
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true
+    echo "✓ GTK icon cache updated"
 fi
 
 echo ""
