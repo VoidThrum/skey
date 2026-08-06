@@ -2183,6 +2183,21 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
         reclaimReady_ = false;
         wordWasBackspaced_ = true;
       }
+    } else {
+      // Non-Chromium: use sentinel to cancel reclaim on second idle BS
+      // (mirrors the surrounding-text path's second-BS cancel and the
+      // address bar sentinel above).  Without this, reclaim stays armed
+      // forever and a new word starting with a tone key resurrects the
+      // deleted word.
+      if (committedLen_ == 0 && reclaimReady_) {
+        // First idle BS at word boundary → sentinel
+        committedLen_ = -1;
+      } else if (committedLen_ == -1) {
+        // Second idle BS → user is deleting, cancel reclaim
+        reclaimReady_ = false;
+        wordWasBackspaced_ = true;
+        committedLen_ = 0;
+      }
     }
     if (committedLen_ > 0) {
       committedLen_--;
