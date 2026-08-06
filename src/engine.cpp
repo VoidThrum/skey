@@ -2021,21 +2021,33 @@ void SKeyState::keyEvent(KeyEvent &keyEvent) {
         addrBarHadFirstWord_ = false;
         return;
       }
-      // After a keep-state fullReplace (single-char tone/diacritic
-      // transform like "e"+"f"→"è" or "e"+"e"→"ê"), the composed
-      // char was committed but engine kept tracking raw input.  One
-      // BS from Chrome deletes the entire committed char, so reset
-      // the engine — partial raw-input backspace doesn't make sense.
+      // After a keep-state fullReplace (ASCII→VN transform like
+      // "e"+"f"→"è" or "cha"+"f"→"chà"), the composed text was
+      // committed but the engine kept tracking raw input.
+      // - Single-char composed: one BS from Chrome deletes the
+      //   entire character — reset the engine.
+      // - Multi-char composed: BS only deletes the last character
+      //   (e.g. 'à' from "chà" leaving "ch") — backspace through.
       if (addrBarKeepState_) {
         addrBarKeepState_ = false;
-        viet_.reset();
-        committedLen_ = 0;
-        // Re-enable fullReplace for the next word.  The keep-state
-        // word was committed and is now deleted; Chrome may re-show
-        // autocomplete when the user retypes.  The addrBarHadSpace_
-        // guard in fullReplace prevents extra BS from damaging
-        // multi-word text when surrounding text is unavailable.
-        addrBarHadFirstWord_ = false;
+        int compLen = static_cast<int>(utf8::length(viet_.getComposed()));
+        if (compLen <= 1) {
+          viet_.reset();
+          committedLen_ = 0;
+          // Re-enable fullReplace for the next word.  The keep-state
+          // word was committed and is now deleted; Chrome may re-show
+          // autocomplete when the user retypes.  The addrBarHadSpace_
+          // guard in fullReplace prevents extra BS from damaging
+          // multi-word text when surrounding text is unavailable.
+          addrBarHadFirstWord_ = false;
+        } else {
+          viet_.backspace();
+          committedLen_ = compLen - 1;
+          addrBarExpectCycle_ = true;
+          if (viet_.getRawInput().empty()) {
+            addrBarIsFirstWord_ = true;
+          }
+        }
         return;
       }
       viet_.backspace();
@@ -2977,11 +2989,15 @@ void SKeyState::scheduleAddrBarReplacement(int bs, const std::string &text,
           }
         }
         addrBarHadFirstWord_ = true;
-        // Don't reset engine for single-char ASCII→VN transforms
-        // (e.g. "e"+"f"→"è").  Keeping state lets the user undo by
-        // pressing the same tone key again ("ef"+"f"→"ef").
-        addrBarDidFullReplace_ = !(oldComposedIsAscii && oldComposedLen == 1);
-        addrBarKeepState_ = (oldComposedIsAscii && oldComposedLen == 1);
+        // Keep engine state after FullReplace for ASCII-based transforms
+        // so the user can continue typing to extend the word:
+        //   "cha"+"f"→"chà" then "o"→"chào" then "s"→"cháo"
+        // Single-char (e→è) also keeps state for undo via tone key.
+        // Non-ASCII bases (rare: ư, ơ, ă, â) still reset — their
+        // composed forms may have different byte lengths.
+        bool keepState = oldComposedIsAscii;
+        addrBarDidFullReplace_ = !keepState;
+        addrBarKeepState_ = keepState;
         SKEY_DEBUG() << "AddrBar: first word, fullReplace BS=" << totalBs
                      << " commit='" << commitText << "'"
                      << (addrBarKeepState_ ? " [keep-state]" : "");
